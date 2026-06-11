@@ -10,16 +10,20 @@ st.set_page_config(page_title="몽말 팀배분 프로그램 by홍찬", layout="
 # --- [파일 영구 저장 엔진] 시스템 설정 ---
 DB_FILE = "futsal_data.json"
 
-# 초기 데이터 구조 정의 (빈칸으로 세팅)
+# 초기 데이터 구조 정의 (3파전 경기팀 선택 기능 추가)
 def get_blank_score_df(mode="3파전"):
     if mode == "2파전":
         quarters = [f"{i}쿼터" for i in range(1, 9)]
         return pd.DataFrame({"블루": [None] * 8, "레드": [None] * 8}, index=quarters)
     else:
         quarters = [f"{i}쿼터" for i in range(1, 10)]
-        return pd.DataFrame({"블루": [None] * 9, "블랙": [None] * 9, "레드": [None] * 9}, index=quarters)
+        # ?? [핵심 개조] 대진을 표에서 직접 선택할 수 있도록 '경기팀' 열을 추가했습니다.
+        return pd.DataFrame({
+            "경기팀": ["블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드", "블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드", "블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드"],
+            "블루": [None] * 9, "블랙": [None] * 9, "레드": [None] * 9
+        }, index=quarters)
 
-# 1. 파일에서 데이터 읽어오기 함수 (★ 옛날 장부 데이터 자동 보정 엔진 탑재)
+# 1. 파일에서 데이터 읽어오기 함수
 def load_permanent_data():
     if os.path.exists(DB_FILE):
         try:
@@ -34,8 +38,10 @@ def load_permanent_data():
                         "조현우": {"공격": 1.0, "수비": 2.0, "키퍼": 5.0}
                     }
                 
-                # ?? [핵심 버그 수정] 만약 옛날 3파전 장부에 '블랙' 열이 누락되어 있다면 자동으로 채워넣어 에러 방지
+                # 데이터 보정 (경기팀 열이 없는 구버전 장부 대응)
                 if data.get("match_mode") == "3파전" and "score_data_dict" in data:
+                    if "경기팀" not in data["score_data_dict"]:
+                        data["score_data_dict"]["경기팀"] = ["블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드", "블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드", "블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드"]
                     if "블랙" not in data["score_data_dict"]:
                         data["score_data_dict"]["블랙"] = [None] * 9
                 
@@ -68,7 +74,7 @@ def save_permanent_data():
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data_to_save, f, ensure_ascii=False, indent=4)
 
-# --- 최초 진입 시 장부에서 데이터를 싹 긁어와 세션에 상주 시킴 ---
+# --- 최초 진입 시 장부 데이터 세션 로드 ---
 if "initialized" not in st.session_state:
     perm_data = load_permanent_data()
     st.session_state.MEMBER_DATABASE = perm_data["MEMBER_DATABASE"]
@@ -195,13 +201,13 @@ if page == menu_1:
         st.text_area("꾹 눌러서 복사 후 카톡 공지", value=katalk_text, height=140)
 
 # =========================================================================
-# 2페이지: 경기 기록실 
+# 2페이지: 경기 기록실 (★ 무한 루프 에러 완전 차단 버전)
 # =========================================================================
 elif page == menu_2:
     st.title(f"실시간 경기 기록실 ({st.session_state.match_mode})")
     
     st.subheader("쿼터 스코어 입력창")
-    st.write("경기가 끝난 쿼터를 고르고, 시합을 뛴 두 팀을 선택해 점수를 입력하세요.")
+    st.write("경기가 끝난 쿼터를 고르면, 정해진 대진에 맞춰 점수 입력창이 나타납니다.")
     
     loop_count = 8 if st.session_state.match_mode == "2파전" else 9
     quarter_options = [f"{i}쿼터" for i in range(1, loop_count + 1)]
@@ -209,36 +215,30 @@ elif page == menu_2:
     selected_q = st.selectbox("기록할 쿼터 선택", quarter_options)
     current_q_data = st.session_state.edited_score_df.loc[selected_q]
     
+    # ?? 무한 루프를 만드는 라디오 버튼을 없애고, 현재 쿼터의 매칭 정보를 바로 가져옵니다.
+    val_blue = None
+    val_black = None
+    val_red = None
+    
     if st.session_state.match_mode == "3파전":
-        default_match_idx = 0
-        if pd.notna(current_q_data.get("블루")) and pd.notna(current_q_data.get("레드")) and pd.isna(current_q_data.get("블랙")):
-            default_match_idx = 0
-        elif pd.notna(current_q_data.get("블루")) and pd.notna(current_q_data.get("블랙")) and pd.isna(current_q_data.get("레드")):
-            default_match_idx = 1
-        elif pd.notna(current_q_data.get("블랙")) and pd.notna(current_q_data.get("레드")) and pd.isna(current_q_data.get("블루")):
-            default_match_idx = 2
-            
-        match_type = st.radio("이번 쿼터 경기 대진", ["블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드"], index=default_match_idx)
+        match_type = current_q_data.get("경기팀", "블루 vs 레드")
+        st.info(f"?? 현재 선택된 {selected_q}의 매치는 **[{match_type}]** 입니다. (아래 현황판에서 대진 변경 가능)")
         
         c1, c2 = st.columns(2)
         if match_type == "블루 vs 레드":
             with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
             with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
-            val_black = None
         elif match_type == "블루 vs 블랙":
             with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
             with c2: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data.get("블랙")) else 0, step=1)
-            val_red = None
-        else:
+        else: # 블랙 vs 레드
             with c1: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data.get("블랙")) else 0, step=1)
             with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
-            val_blue = None
             
-    else:
+    else: # 2파전일 때
         c1, c2 = st.columns(2)
         with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
         with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
-        val_black = None
 
     if st.button("해당 쿼터 점수 저장하기", use_container_width=True, type="primary"):
         st.session_state.edited_score_df.at[selected_q, "블루"] = val_blue
@@ -252,19 +252,49 @@ elif page == menu_2:
 
     st.markdown("---")
     st.subheader("현재까지 기록된 쿼터 현황판")
+    st.caption("?? 3파전 대진 일정이 오늘과 다를 경우, [경기팀] 칸을 눌러 대진을 직접 바꿀 수 있습니다!")
     
-    display_score_df = st.session_state.edited_score_df.copy()
-    display_score_df = display_score_df.fillna("-")
-    st.dataframe(display_score_df, use_container_width=True)
+    # 현황판 표 렌더링 및 수정 처리
+    if st.session_state.match_mode == "3파전":
+        grid_score = st.data_editor(
+            st.session_state.edited_score_df,
+            use_container_width=True,
+            column_config={
+                "경기팀": st.column_config.SelectboxColumn(
+                    "경기팀",
+                    options=["블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드"],
+                    required=True
+                ),
+                "블루": st.column_config.NumberColumn("블루", format="%d"),
+                "블랙": st.column_config.NumberColumn("블랙", format="%d"),
+                "레드": st.column_config.NumberColumn("레드", format="%d"),
+            }
+        )
+    else:
+        grid_score = st.data_editor(
+            st.session_state.edited_score_df,
+            use_container_width=True,
+            column_config={
+                "블루": st.column_config.NumberColumn("블루", format="%d"),
+                "레드": st.column_config.NumberColumn("레드", format="%d"),
+            }
+        )
+        
+    # 표에서 직접 수정한 데이터 동기화 및 저장
+    if not grid_score.equals(st.session_state.edited_score_df):
+        st.session_state.edited_score_df = grid_score
+        save_permanent_data()
+        st.rerun()
 
     # --- 전적 계산 엔진 ---
     history_keys = ["레드", "블루"] if st.session_state.match_mode == "2파전" else ["레드", "블랙", "블루"]
     history = {t: {"W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "GD": 0, "PTS": 0, "MP": 0} for t in history_keys}
 
     for i in range(loop_count):
-        b_val = st.session_state.edited_score_df.iloc[i].get("블루")
-        r_val = st.session_state.edited_score_df.iloc[i].get("레드")
-        bl_val = st.session_state.edited_score_df.iloc[i].get("블랙") if st.session_state.match_mode == "3파전" else None
+        row_data = st.session_state.edited_score_df.iloc[i]
+        b_val = row_data.get("블루")
+        r_val = row_data.get("레드")
+        bl_val = row_data.get("블랙") if st.session_state.match_mode == "3파전" else None
         
         valid_teams = []
         valid_scores = []
