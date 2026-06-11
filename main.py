@@ -10,18 +10,14 @@ st.set_page_config(page_title="몽말 팀배분 프로그램 by홍찬", layout="
 # --- [파일 영구 저장 엔진] 시스템 설정 ---
 DB_FILE = "futsal_data.json"
 
-# 초기 데이터 구조 정의 (3파전 경기팀 선택 기능 추가)
+# 초기 데이터 구조 정의 (빈칸으로 세팅)
 def get_blank_score_df(mode="3파전"):
     if mode == "2파전":
         quarters = [f"{i}쿼터" for i in range(1, 9)]
         return pd.DataFrame({"블루": [None] * 8, "레드": [None] * 8}, index=quarters)
     else:
         quarters = [f"{i}쿼터" for i in range(1, 10)]
-        # ?? [핵심 개조] 대진을 표에서 직접 선택할 수 있도록 '경기팀' 열을 추가했습니다.
-        return pd.DataFrame({
-            "경기팀": ["블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드", "블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드", "블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드"],
-            "블루": [None] * 9, "블랙": [None] * 9, "레드": [None] * 9
-        }, index=quarters)
+        return pd.DataFrame({"블루": [None] * 9, "블랙": [None] * 9, "레드": [None] * 9}, index=quarters)
 
 # 1. 파일에서 데이터 읽어오기 함수
 def load_permanent_data():
@@ -37,14 +33,6 @@ def load_permanent_data():
                         "김민재": {"공격": 2.0, "수비": 5.0, "키퍼": 3.0},
                         "조현우": {"공격": 1.0, "수비": 2.0, "키퍼": 5.0}
                     }
-                
-                # 데이터 보정 (경기팀 열이 없는 구버전 장부 대응)
-                if data.get("match_mode") == "3파전" and "score_data_dict" in data:
-                    if "경기팀" not in data["score_data_dict"]:
-                        data["score_data_dict"]["경기팀"] = ["블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드", "블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드", "블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드"]
-                    if "블랙" not in data["score_data_dict"]:
-                        data["score_data_dict"]["블랙"] = [None] * 9
-                
                 return data
         except:
             pass
@@ -82,9 +70,14 @@ if "initialized" not in st.session_state:
     st.session_state.match_mode = perm_data["match_mode"]
     
     mode = perm_data["match_mode"]
+    quarters = [f"{i}쿼?" for i in range(1, 8 if mode == "2파전" else 10)]
     quarters = [f"{i}쿼터" for i in range(1, 8 if mode == "2파전" else 10)]
     
     raw_scores = perm_data["score_data_dict"]
+    # 만약 구버전 잔재로 '경기팀' 열이 들어가 있다면 제거하여 구조 통합
+    if "경기팀" in raw_scores:
+        del raw_scores["경기팀"]
+        
     st.session_state.edited_score_df = pd.DataFrame(raw_scores, index=quarters)
     st.session_state.current_teams = {}
     st.session_state.initialized = True
@@ -201,13 +194,13 @@ if page == menu_1:
         st.text_area("꾹 눌러서 복사 후 카톡 공지", value=katalk_text, height=140)
 
 # =========================================================================
-# 2페이지: 경기 기록실 (★ 무한 루프 에러 완전 차단 버전)
+# 2페이지: 경기 기록실 (★ 이모티콘 100% 박멸 + 대진 고정 자동화 버전)
 # =========================================================================
 elif page == menu_2:
     st.title(f"실시간 경기 기록실 ({st.session_state.match_mode})")
     
     st.subheader("쿼터 스코어 입력창")
-    st.write("경기가 끝난 쿼터를 고르면, 정해진 대진에 맞춰 점수 입력창이 나타납니다.")
+    st.write("경기가 끝난 쿼터를 고르면, 대진에 맞춰 점수 입력창이 자동으로 나타납니다.")
     
     loop_count = 8 if st.session_state.match_mode == "2파전" else 9
     quarter_options = [f"{i}쿼터" for i in range(1, loop_count + 1)]
@@ -215,23 +208,25 @@ elif page == menu_2:
     selected_q = st.selectbox("기록할 쿼터 선택", quarter_options)
     current_q_data = st.session_state.edited_score_df.loc[selected_q]
     
-    # ?? 무한 루프를 만드는 라디오 버튼을 없애고, 현재 쿼터의 매칭 정보를 바로 가져옵니다.
     val_blue = None
     val_black = None
     val_red = None
     
+    # ?? [대수술] 복잡한 대진 선택 수동 기능 삭제! 순서대로 자동 매칭 작동
     if st.session_state.match_mode == "3파전":
-        match_type = current_q_data.get("경기팀", "블루 vs 레드")
-        st.info(f"?? 현재 선택된 {selected_q}의 매치는 **[{match_type}]** 입니다. (아래 현황판에서 대진 변경 가능)")
+        q_idx = int(selected_q.replace("쿼터", "")) - 1
         
         c1, c2 = st.columns(2)
-        if match_type == "블루 vs 레드":
+        if q_idx % 3 == 0: # 1, 4, 7 쿼터: 블루 vs 레드
+            st.info(f"현재 선택된 {selected_q}의 매치는 [블루 vs 레드] 입니다.")
             with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
             with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
-        elif match_type == "블루 vs 블랙":
+        elif q_idx % 3 == 1: # 2, 5, 8 쿼터: 블루 vs 블랙
+            st.info(f"현재 선택된 {selected_q}의 매치는 [블루 vs 블랙] 입니다.")
             with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
             with c2: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data.get("블랙")) else 0, step=1)
-        else: # 블랙 vs 레드
+        else: # 3, 6, 9 쿼터: 블랙 vs 레드
+            st.info(f"현재 선택된 {selected_q}의 매치는 [블랙 vs 레드] 입니다.")
             with c1: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data.get("블랙")) else 0, step=1)
             with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
             
@@ -252,39 +247,12 @@ elif page == menu_2:
 
     st.markdown("---")
     st.subheader("현재까지 기록된 쿼터 현황판")
-    st.caption("?? 3파전 대진 일정이 오늘과 다를 경우, [경기팀] 칸을 눌러 대진을 직접 바꿀 수 있습니다!")
+    st.write("데이터 수정이 필요한 경우 관리자 인증 후 메뉴를 사용하세요.")
     
-    # 현황판 표 렌더링 및 수정 처리
-    if st.session_state.match_mode == "3파전":
-        grid_score = st.data_editor(
-            st.session_state.edited_score_df,
-            use_container_width=True,
-            column_config={
-                "경기팀": st.column_config.SelectboxColumn(
-                    "경기팀",
-                    options=["블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드"],
-                    required=True
-                ),
-                "블루": st.column_config.NumberColumn("블루", format="%d"),
-                "블랙": st.column_config.NumberColumn("블랙", format="%d"),
-                "레드": st.column_config.NumberColumn("레드", format="%d"),
-            }
-        )
-    else:
-        grid_score = st.data_editor(
-            st.session_state.edited_score_df,
-            use_container_width=True,
-            column_config={
-                "블루": st.column_config.NumberColumn("블루", format="%d"),
-                "레드": st.column_config.NumberColumn("레드", format="%d"),
-            }
-        )
-        
-    # 표에서 직접 수정한 데이터 동기화 및 저장
-    if not grid_score.equals(st.session_state.edited_score_df):
-        st.session_state.edited_score_df = grid_score
-        save_permanent_data()
-        st.rerun()
+    # 오작동을 유발하던 데이터 에디터 표를 '읽기 전용' 안전 테이블로 변경 (모바일 속도 향상)
+    display_score_df = st.session_state.edited_score_df.copy()
+    display_score_df = display_score_df.fillna("-")
+    st.dataframe(display_score_df, use_container_width=True)
 
     # --- 전적 계산 엔진 ---
     history_keys = ["레드", "블루"] if st.session_state.match_mode == "2파전" else ["레드", "블랙", "블루"]
