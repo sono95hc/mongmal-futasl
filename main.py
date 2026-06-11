@@ -8,8 +8,9 @@ st.set_page_config(page_title="몽말 팀배분 프로그램 by홍찬", layout="
 # --- 여러 페이지 간 데이터 공유를 위한 저장소 세팅 ---
 if "current_teams" not in st.session_state:
     st.session_state.current_teams = {}
+if "match_mode" not in st.session_state:
+    st.session_state.match_mode = "3파전"
 if "edited_df" not in st.session_state:
-    # 기본 선수 명단 18명 초기화
     default_data = {
         "이름": ["손흥민", "이강인", "황희찬", "김민재", "조현우"] + [""] * 13,
         "공격 (1~5)": [5, 5, 4, 2, 1] + [1] * 13,
@@ -18,33 +19,42 @@ if "edited_df" not in st.session_state:
     }
     st.session_state.edited_df = pd.DataFrame(default_data)
 if "edited_score_df" not in st.session_state:
-    # 9쿼터 스코어 보드 초기화
     quarters = [f"{i}쿼터" for i in range(1, 10)]
     score_data = {"블루 점수": [0] * 9, "블랙 점수": [0] * 9, "레드 점수": [0] * 9}
     st.session_state.edited_score_df = pd.DataFrame(score_data, index=quarters)
 
-# --- 스마트폰 메뉴 분리 (오타 발생 가능성 차단을 위해 변수화) ---
-menu_1 = "▶ 1. 선수 명단 & 팀배분"
-menu_2 = "▶ 2. 실시간 9쿼터 기록실"
-
+# --- ?? 사이드바 보안 시스템 구축 ---
 st.sidebar.title("MENU")
-page = st.sidebar.radio("원하시는 기능을 선택하세요", [menu_1, menu_2])
+
+# 1. 기본적으로 일반 회원들에게는 [기록실] 메뉴만 보여줍니다.
+menu_options = ["▶ 2. 실시간 경기 기록실"]
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("?? 관리자 인증")
+# ?? 총무님만 아는 비밀번호를 설정하세요 (원하는 암호로 변경 가능합니다)
+admin_password = st.sidebar.text_input("총무 비밀번호 입력", type="password")
+
+# 2. 비밀번호가 일치하면 숨겨져 있던 [선수 명단] 메뉴를 맨 앞에 슬쩍 추가해줍니다!
+if admin_password == "1234":
+    menu_options.insert(0, "▶ 1. 선수 명단 & 팀배분")
+    st.sidebar.success("인증 완료! 명단 메뉴가 열렸습니다.")
+
+# 메뉴 선택창 출력
+page = st.sidebar.radio("원하시는 기능을 선택하세요", menu_options)
 st.sidebar.caption("제작자: by홍찬")
 
+
 # =========================================================================
-# ?? 1페이지: 선수 명단 및 팀 배분 기능
+# ?? 1페이지: 선수 명단 및 팀 배분 기능 (총무 인증시에만 접근 가능)
 # =========================================================================
-# ?? [수정 완료] 이 부분의 조건문 텍스트를 상단 메뉴와 완벽하게 일치시켰습니다!
-if page == menu_1:
+if page == "▶ 1. 선수 명단 & 팀배분":
     st.title("몽말 팀배분 프로그램")
     st.write("진짜 엑셀처럼 칸을 누르고 이름과 점수(1~5)를 입력하세요. (최대 18명)")
     
-    # 세션에 저장된 명단 표 출력 및 수정 반영
     st.session_state.edited_df = st.data_editor(
         st.session_state.edited_df, num_rows="fixed", use_container_width=True, hide_index=True
     )
 
-    # 팀 짜기 버튼
     if st.button("★ 황금밸런스 팀 짜기 시작!", use_container_width=True, type="primary"):
         players = []
         for _, row in st.session_state.edited_df.iterrows():
@@ -57,23 +67,33 @@ if page == menu_1:
             st.error("선수를 입력해 주세요.")
         else:
             players.sort(key=lambda x: x['total'], reverse=True)
+            
             if total_players < 15:
+                st.session_state.match_mode = "2파전"
                 team_names = ["레드", "블루"]
                 st.session_state.current_teams = {name: [] for name in team_names}
                 for idx, p in enumerate(players):
                     st.session_state.current_teams["레드" if idx % 2 == 0 else "블루"].append(p)
+                
+                quarters_2p = [f"{i}쿼터" for i in range(1, 8)]
+                score_data_2p = {"블루 점수": [0] * 8, "레드 점수": [0] * 8}
+                st.session_state.edited_score_df = pd.DataFrame(score_data_2p, index=quarters_2p)
             else:
+                st.session_state.match_mode = "3파전"
                 team_names = ["블랙", "레드", "블루"]
                 st.session_state.current_teams = {name: [] for name in team_names}
                 order = [0, 1, 2]
                 for idx, p in enumerate(players):
                     if idx % 3 == 0 and idx > 0: random.shuffle(order)
                     st.session_state.current_teams[team_names[order[idx % 3]]].append(p)
+                
+                quarters_3p = [f"{i}쿼터" for i in range(1, 10)]
+                score_data_3p = {"블루 점수": [0] * 9, "블랙 점수": [0] * 9, "레드 점수": [0] * 9}
+                st.session_state.edited_score_df = pd.DataFrame(score_data_3p, index=quarters_3p)
 
-    # 팀 짜기 결과 출력
     if st.session_state.current_teams:
-        st.success("팀 매칭 완료!")
-        katalk_text = f"?? [풋살 팀 매칭 결과]\n===========================\n"
+        st.success(f"? {st.session_state.match_mode} 매칭 완료!")
+        katalk_text = f"?? [풋살 팀 매칭 결과 ({st.session_state.match_mode})]\n===========================\n"
         for t_name, members in st.session_state.current_teams.items():
             m_names = [p['name'] for p in members]
             katalk_text += f"\n■ {t_name}팀 ({len(members)}명)\n   - {', '.join(m_names)}\n"
@@ -81,46 +101,51 @@ if page == menu_1:
         st.text_area("?? 꾹 눌러서 복사 후 카톡 공지", value=katalk_text, height=140)
 
 # =========================================================================
-# ?? 2페이지: 9쿼터 스코어보드 및 실시간 순위표
+# ?? 2페이지: 경기 기록실 (모든 회원이 기본적으로 보는 화면)
 # =========================================================================
 else:
-    st.title("실시간 1~9쿼터 경기 기록실")
-    st.write("각 쿼터별로 팀이 넣은 점수를 입력하세요. 쉬는 팀은 점수를 0으로 두면 됩니다.")
+    st.title(f"실시간 경기 기록실 ({st.session_state.match_mode} 모드)")
     
-    # 세션에 저장된 스코어 표 출력 및 수정 반영
+    if st.session_state.match_mode == "2파전":
+        st.write("레드팀과 블루팀의 1~8쿼터 점수를 입력하세요.")
+        history_keys = ["레드", "블루"]
+    else:
+        st.write("각 쿼터별 점수를 입력하세요. 쉬는 팀은 점수를 0으로 두면 됩니다.")
+        history_keys = ["레드", "블랙", "블루"]
+        
     st.session_state.edited_score_df = st.data_editor(st.session_state.edited_score_df, use_container_width=True)
 
-    # 연산 엔진 가동
-    history = {
-        "블루": {"승": 0, "무": 0, "패": 0, "득점": 0, "실점": 0, "골득실": 0, "승점": 0, "경기수": 0},
-        "블랙": {"승": 0, "무": 0, "패": 0, "득점": 0, "실점": 0, "골득실": 0, "승점": 0, "경기수": 0},
-        "레드": {"승": 0, "무": 0, "패": 0, "득점": 0, "실점": 0, "골득실": 0, "승점": 0, "경기수": 0}
-    }
+    history = {t: {"승": 0, "무": 0, "패": 0, "득점": 0, "실점": 0, "골득실": 0, "승점": 0, "경기수": 0} for t in history_keys}
+    loop_count = 8 if st.session_state.match_mode == "2파전" else 9
 
-    for i in range(9):
+    for i in range(loop_count):
         blue_score = st.session_state.edited_score_df.iloc[i]["블루 점수"]
-        black_score = st.session_state.edited_score_df.iloc[i]["블랙 점수"]
         red_score = st.session_state.edited_score_df.iloc[i]["레드 점수"]
+        black_score = st.session_state.edited_score_df.iloc[i]["블랙 점수"] if st.session_state.match_mode == "3파전" else 0
         
         t_pairs = []
         scores = []
         
-        # 3파전 휴식 로테이션 자동 분석 로직
-        if i % 3 == 0:
-            t_pairs = ["레드", "블루"]; scores = [int(red_score), int(blue_score)]
-            if black_score > 0 and red_score == 0: t_pairs = ["블랙", "블루"]; scores = [int(black_score), int(blue_score)]
-            elif black_score > 0 and blue_score == 0: t_pairs = ["블랙", "레드"]; scores = [int(black_score), int(red_score)]
-        elif i % 3 == 1:
-            t_pairs = ["블랙", "레드"]; scores = [int(black_score), int(red_score)]
-            if blue_score > 0 and black_score == 0: t_pairs = ["블루", "레드"]; scores = [int(blue_score), int(red_score)]
-            elif blue_score > 0 and red_score == 0: t_pairs = ["블루", "블랙"]; scores = [int(blue_score), int(black_score)]
+        if st.session_state.match_mode == "2파전":
+            t_pairs = ["레드", "블루"]
+            scores = [int(red_score), int(blue_score)]
+            if blue_score == 0 and red_score == 0: continue
         else:
-            t_pairs = ["블루", "블랙"]; scores = [int(blue_score), int(black_score)]
-            if red_score > 0 and blue_score == 0: t_pairs = ["레드", "블랙"]; scores = [int(red_score), int(black_score)]
-            elif red_score > 0 and black_score == 0: t_pairs = ["레드", "블루"]; scores = [int(red_score), int(blue_score)]
+            if i % 3 == 0:
+                t_pairs = ["레드", "블루"]; scores = [int(red_score), int(blue_score)]
+                if black_score > 0 and red_score == 0: t_pairs = ["블랙", "블루"]; scores = [int(black_score), int(blue_score)]
+                elif black_score > 0 and blue_score == 0: t_pairs = ["블랙", "레드"]; scores = [int(black_score), int(red_score)]
+            elif i % 3 == 1:
+                t_pairs = ["블랙", "레드"]; scores = [int(black_score), int(red_score)]
+                if blue_score > 0 and black_score == 0: t_pairs = ["블루", "레드"]; scores = [int(blue_score), int(red_score)]
+                elif blue_score > 0 and red_score == 0: t_pairs = ["블루", "블랙"]; scores = [int(blue_score), int(black_score)]
+            else:
+                t_pairs = ["블루", "블랙"]; scores = [int(blue_score), int(black_score)]
+                if red_score > 0 and blue_score == 0: t_pairs = ["레드", "블랙"]; scores = [int(red_score), int(black_score)]
+                elif red_score > 0 and black_score == 0: t_pairs = ["레드", "블루"]; scores = [int(red_score), int(blue_score)]
 
-        if scores[0] == 0 and scores[1] == 0 and (blue_score == 0 and black_score == 0 and red_score == 0):
-            continue
+            if scores[0] == 0 and scores[1] == 0 and (blue_score == 0 and black_score == 0 and red_score == 0):
+                continue
             
         tm1, tm2 = t_pairs[0], t_pairs[1]
         sc1, sc2 = scores[0], scores[1]
@@ -139,15 +164,14 @@ else:
             history[tm1]["무"] += 1; history[tm1]["승점"] += 1
             history[tm2]["무"] += 1; history[tm2]["승점"] += 1
 
-for t in history:
-    history[t]["골득실"] = history[t]["득점"] - history[t]["실점"]
+    for t in history:
+        history[t]["골득실"] = history[t]["득점"] - history[t]["실점"]
 
-    # 실시간 순위 테이블 출력
     st.subheader("★ 오늘 경기 실시간 순위표")
 
     sort_df = pd.DataFrame([
         {"팀": t, "승점": history[t]["승점"], "골득실": history[t]["골득실"], "득점": history[t]["득점"]} 
-        for t in ["레드", "블랙", "블루"]
+        for t in history_keys
     ])
     sort_df = sort_df.sort_values(by=["승점", "골득실", "득점"], ascending=[False, False, False]).reset_index(drop=True)
 
