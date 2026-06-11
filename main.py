@@ -119,19 +119,17 @@ if page == menu_1:
     st.subheader("경기 방식 설정")
     selected_mode = st.radio("오늘 매치 방식을 골라주세요", ["2파전 (8쿼터)", "3파전 (9쿼터)"], index=0 if st.session_state.match_mode == "2파전" else 1)
 
-    # ?? [안전장치 1단계] 팀 짜기 시작 버튼을 누르면 먼저 경고 플래그를 켭니다.
     if st.button("팀 짜기 시작", use_container_width=True, type="primary"):
         st.session_state.show_warning = True
 
-    # ?? [안전장치 2단계] 경고 플래그가 켜졌을 때만 작동하는 확인 폼
+    # ?? [버그 수정 완료] 문구 맨 앞에 붙어있던 경고(??) 이모지를 지워서 물음표를 완전히 방지했습니다.
     if st.session_state.show_warning:
-        st.warning("?? 주의: 팀을 새로 짜면 현재 경기 기록실의 점수가 모두 초기화됩니다. 계속 진행하시겠습니까?")
+        st.warning("주의: 팀을 새로 짜면 현재 경기 기록실의 점수가 모두 초기화됩니다. 계속 진행하시겠습니까?")
         
         col1, col2 = st.columns(2)
         with col1:
-            # 최종 승인 버튼
             if st.button("네, 새로 짭니다", use_container_width=True, type="secondary"):
-                st.session_state.show_warning = False # 플래그 해제
+                st.session_state.show_warning = False
                 
                 players = []
                 for name in st.session_state.attendance_list:
@@ -163,21 +161,19 @@ if page == menu_1:
                             if idx % 3 == 0 and idx > 0: random.shuffle(order)
                             st.session_state.current_teams[(["블랙", "레드", "블루"])[order[idx % 3]]].append(p)
                     
-                    # ?? 확정 시 스코어보드를 완전히 새로 리셋합니다.
                     st.session_state.edited_score_df = get_blank_score_df(new_mode)
                     save_permanent_data()
                     st.rerun()
                     
         with col2:
-            # 취소 버튼
             if st.button("아니오, 취소합니다", use_container_width=True):
                 st.session_state.show_warning = False
                 st.info("팀 짜기가 취소되었습니다. 기존 경기 기록은 무사합니다.")
                 st.rerun()
 
-    # 팀 짜기 최종 결과 출력 구역
+    # ?? [버그 수정 완료] 성공(?) 이모지를 지우고 깔끔한 한글 텍스트로 대체했습니다.
     if st.session_state.current_teams and not st.session_state.show_warning:
-        st.success(f"매칭 완료")
+        st.success("매칭 완료")
         katalk_text = f"[풋살 팀 매칭 결과 ({st.session_state.match_mode})]\n"
         for t_name, members in st.session_state.current_teams.items():
             m_names = [p['name'] for p in members]
@@ -214,7 +210,7 @@ elif page == menu_2:
             if blue_score == 0 and red_score == 0: continue
         else:
             if i % 3 == 0:
-                t_pairs = ["레드", "ブル"]; scores = [int(red_score), int(blue_score)]
+                t_pairs = ["레드", "블루"]; scores = [int(red_score), int(blue_score)]
                 if black_score > 0 and red_score == 0: t_pairs = ["블랙", "블루"]; scores = [int(black_score), int(blue_score)]
                 elif black_score > 0 and blue_score == 0: t_pairs = ["블랙", "레드"]; scores = [int(black_score), int(red_score)]
             elif i % 3 == 1:
@@ -263,7 +259,7 @@ elif page == menu_2:
     
     if is_admin:
         st.markdown("---")
-        if st.button("?? 오늘 경기 스코어판 전체 초기화 (데이터 리셋)", use_container_width=True):
+        if st.button("오늘 경기 스코어판 전체 초기화 (데이터 리셋)", use_container_width=True):
             st.session_state.edited_score_df = get_blank_score_df(st.session_state.match_mode)
             save_permanent_data()
             st.rerun()
