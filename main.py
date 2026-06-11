@@ -27,11 +27,11 @@ def load_permanent_data():
                 data = json.load(f)
                 if "MEMBER_DATABASE" not in data:
                     data["MEMBER_DATABASE"] = {
-                        "손흥민": {"공격": 5, "수비": 4, "키퍼": 2},
-                        "이강인": {"공격": 5, "수비": 3, "키퍼": 2},
-                        "황희찬": {"공격": 4, "수비": 3, "키퍼": 1},
-                        "김민재": {"공격": 2, "수비": 5, "키퍼": 3},
-                        "조현우": {"공격": 1, "수비": 2, "키퍼": 5}
+                        "손흥민": {"공격": 5.0, "수비": 4.0, "키퍼": 2.0},
+                        "이강인": {"공격": 5.0, "수비": 3.0, "키퍼": 2.0},
+                        "황희찬": {"공격": 4.0, "수비": 3.0, "키퍼": 1.0},
+                        "김민재": {"공격": 2.0, "수비": 5.0, "키퍼": 3.0},
+                        "조현우": {"공격": 1.0, "수비": 2.0, "키퍼": 5.0}
                     }
                 return data
         except:
@@ -39,11 +39,11 @@ def load_permanent_data():
     
     return {
         "MEMBER_DATABASE": {
-            "손흥민": {"공격": 5, "수비": 4, "키퍼": 2},
-            "이강인": {"공격": 5, "수비": 3, "키퍼": 2},
-            "황희찬": {"공격": 4, "수비": 3, "키퍼": 1},
-            "김민재": {"공격": 2, "수비": 5, "키퍼": 3},
-            "조현우": {"공격": 1, "수비": 2, "키퍼": 5}
+            "손흥민": {"공격": 5.0, "수비": 4.0, "키퍼": 2.0},
+            "이강인": {"공격": 5.0, "수비": 3.0, "키퍼": 2.0},
+            "황희찬": {"공격": 4.0, "수비": 3.0, "키퍼": 1.0},
+            "김민재": {"공격": 2.0, "수비": 5.0, "키퍼": 3.0},
+            "조현우": {"공격": 1.0, "수비": 2.0, "키퍼": 5.0}
         },
         "attendance_list": ["손흥민", "이강인", "황희찬", "김민재", "조현우"] + [""] * 13,
         "match_mode": "3파전",
@@ -74,6 +74,15 @@ if "initialized" not in st.session_state:
     st.session_state.edited_score_df = pd.DataFrame(perm_data["score_data_dict"], index=quarters)
     st.session_state.current_teams = {}
     st.session_state.initialized = True
+
+# --- ?? [수정] 3페이지 대량 입력용 표 초기화 (소수점 기본 입력을 위해 3.0 세팅) ---
+if "bulk_input_df" not in st.session_state:
+    st.session_state.bulk_input_df = pd.DataFrame({
+        "이름": [""] * 30,
+        "공격": [3.0] * 30,
+        "수비": [3.0] * 30,
+        "키퍼": [3.0] * 30
+    })
 
 # --- 상태 보존용 세션 플래그 생성 ---
 if "show_warning" not in st.session_state:
@@ -122,7 +131,6 @@ if page == menu_1:
     if st.button("팀 짜기 시작", use_container_width=True, type="primary"):
         st.session_state.show_warning = True
 
-    # ?? [버그 수정 완료] 문구 맨 앞에 붙어있던 경고(??) 이모지를 지워서 물음표를 완전히 방지했습니다.
     if st.session_state.show_warning:
         st.warning("주의: 팀을 새로 짜면 현재 경기 기록실의 점수가 모두 초기화됩니다. 계속 진행하시겠습니까?")
         
@@ -137,9 +145,10 @@ if page == menu_1:
                     if cleaned_name and cleaned_name != "None" and cleaned_name != "":
                         if cleaned_name in st.session_state.MEMBER_DATABASE:
                             db_info = st.session_state.MEMBER_DATABASE[cleaned_name]
-                            total_score = int(db_info["공격"]) + int(db_info["수비"])
+                            # ?? [수정] 소수점 점수 합산 연산 반영
+                            total_score = float(db_info["공격"]) + float(db_info["수비"])
                         else:
-                            total_score = 6
+                            total_score = 6.0
                         players.append({"name": cleaned_name, "total": total_score})
                         
                 total_players = len(players)
@@ -171,7 +180,6 @@ if page == menu_1:
                 st.info("팀 짜기가 취소되었습니다. 기존 경기 기록은 무사합니다.")
                 st.rerun()
 
-    # ?? [버그 수정 완료] 성공(?) 이모지를 지우고 깔끔한 한글 텍스트로 대체했습니다.
     if st.session_state.current_teams and not st.session_state.show_warning:
         st.success("매칭 완료")
         katalk_text = f"[풋살 팀 매칭 결과 ({st.session_state.match_mode})]\n"
@@ -265,29 +273,61 @@ elif page == menu_2:
             st.rerun()
 
 # =========================================================================
-# ? 3페이지: 회원별 점수 관리실
+# ? 3페이지: 회원별 점수 관리실 (?? 소수점 둘째 자리 지원 개조)
 # =========================================================================
 else:
     st.title("3. 회원별 점수 관리실")
-    st.write("비공개 도감 구역입니다. 여기에 등록된 회원 점수를 토대로 앞 페이지에서 밸런스 팀 매칭이 진행됩니다.")
+    st.write("엑셀 장부의 데이터를 [이름, 공격, 수비, 키퍼] 순서대로 복사해서 아래 표 첫 칸에 붙여넣기 하세요.")
+    st.caption("?? 소수점 둘째 자리(예: 3.5, 4.25)까지 정교하게 복붙 및 입력이 가능합니다.")
     
-    new_name = st.text_input("회원 이름 입력").strip()
-    new_atk = st.slider("공격 능력치", 1, 5, 3)
-    new_dfd = st.slider("수비 능력치", 1, 5, 3)
-    new_gk = st.slider("키퍼 능력치", 1, 5, 3)
-    
-    if st.button("도감에 데이터 저장하기", use_container_width=True, type="primary"):
-        if not new_name:
-            st.error("이름을 입력해 주세요.")
-        else:
-            st.session_state.MEMBER_DATABASE[new_name] = {"공격": new_atk, "수비": new_dfd, "키퍼": new_gk}
+    # ?? [소수점 대응 설정] 데이터 타입 강제 변환 및 출력 포맷 지정
+    bulk_input_processed = st.session_state.bulk_input_df.copy()
+    bulk_input_processed["공격"] = bulk_input_processed["공격"].astype(float)
+    bulk_input_processed["수비"] = bulk_input_processed["수비"].astype(float)
+    bulk_input_processed["키퍼"] = bulk_input_processed["키퍼"].astype(float)
+
+    grid_bulk = st.data_editor(
+        bulk_input_processed, 
+        num_rows="fixed", 
+        use_container_width=True, 
+        hide_index=True,
+        column_config={
+            "공격": st.column_config.NumberColumn(format="%.2f"),
+            "수비": st.column_config.NumberColumn(format="%.2f"),
+            "키퍼": st.column_config.NumberColumn(format="%.2f"),
+        }
+    )
+    st.session_state.bulk_input_df = grid_bulk
+
+    # 일괄 저장 버튼
+    if st.button("도감에 일괄 저장하기", use_container_width=True, type="primary"):
+        saved_count = 0
+        for _, row in grid_bulk.iterrows():
+            name = str(row["이름"]).strip()
+            if name and name != "None" and name != "":
+                # ?? [소수점 저장] 데이터를 실수(float) 형태로 정밀 저장
+                st.session_state.MEMBER_DATABASE[name] = {
+                    "공격": round(float(row["공격"]), 2),
+                    "수비": round(float(row["수비"]), 2),
+                    "키퍼": round(float(row["키퍼"]), 2)
+                }
+                saved_count += 1
+        
+        if saved_count > 0:
             save_permanent_data()
-            st.success(f"성공! [ {new_name} ] 선수의 실력 데이터가 비공개 저장소에 기록되었습니다.")
+            st.success(f"성공! 총 {saved_count}명의 정밀 실력 데이터가 비공개 도감에 일괄 등록되었습니다.")
             st.rerun()
+        else:
+            st.error("표에 입력된 이름이 없습니다.")
             
     st.markdown("---")
     st.subheader("현재 등록된 전체 회원별 점수 도감")
     db_list = []
     for name, stats in st.session_state.MEMBER_DATABASE.items():
-        db_list.append({"이름": name, "공격점수": stats["공격"], "수비점수": stats["수비"], "키퍼점수": stats["키퍼"]})
+        db_list.append({
+            "이름": name, 
+            "공격점수": round(float(stats["공격"]), 2), 
+            "수비점수": round(float(stats["수비"]), 2), 
+            "키퍼점수": round(float(stats["키퍼"]), 2)
+        })
     st.dataframe(pd.DataFrame(db_list), use_container_width=True, hide_index=True)
