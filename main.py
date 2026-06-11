@@ -131,6 +131,7 @@ if page == menu_1:
     if st.button("팀 짜기 시작", use_container_width=True, type="primary"):
         st.session_state.show_warning = True
 
+    # ?? [버그 박멸] st.warning 창 내부의 모든 이모티콘 전면 삭제
     if st.session_state.show_warning:
         st.warning("주의: 팀을 새로 짜면 현재 경기 기록실의 점수가 모두 초기화됩니다. 계속 진행하시겠습니까?")
         
@@ -179,12 +180,15 @@ if page == menu_1:
                 st.info("팀 짜기가 취소되었습니다. 기존 경기 기록은 무사합니다.")
                 st.rerun()
 
+    # ?? [버그 박멸] st.success 및 st.text_area 레이블의 모든 이모티콘 전면 삭제
     if st.session_state.current_teams and not st.session_state.show_warning:
         st.success("매칭 완료")
+        
         katalk_text = f"[풋살 팀 매칭 결과 ({st.session_state.match_mode})]\n"
         for t_name, members in st.session_state.current_teams.items():
             m_names = [p['name'] for p in members]
-            katalk_text += f"\n- {t_name}팀 ({len(members)}명)\n  : {', '.join(m_names)}\n"
+            katalk_text += f"\n{t_name}팀 ({len(members)}명)\n{', '.join(m_names)}\n"
+            
         st.text_area("꾹 눌러서 복사 후 카톡 공지", value=katalk_text, height=140)
 
 # =========================================================================
@@ -272,13 +276,12 @@ elif page == menu_2:
             st.rerun()
 
 # =========================================================================
-# ? 3페이지: 회원별 점수 관리실 (★ 수정/삭제 기능 완벽 통합)
+# ? 3페이지: 회원별 점수 관리실
 # =========================================================================
 else:
     st.title("3. 회원별 점수 관리실")
     
-    # 윗부분: 신규 등록 구역
-    st.subheader("?? 신규 회원 대량 복붙 / 등록")
+    st.subheader("신규 회원 대량 복붙 / 등록")
     st.write("엑셀 데이터를 [이름, 공격, 수비, 키퍼] 순서대로 복사해서 아래 표 첫 칸에 붙여넣기 하세요.")
     
     bulk_input_processed = st.session_state.bulk_input_df.copy()
@@ -307,7 +310,6 @@ else:
                 saved_count += 1
         if saved_count > 0:
             save_permanent_data()
-            # 입력창 비우기용 초기화
             st.session_state.bulk_input_df = pd.DataFrame({"이름": [""] * 15, "공격": [3.0] * 15, "수비": [3.0] * 15, "키퍼": [3.0] * 15})
             st.success(f"성공! 총 {saved_count}명의 데이터가 도감에 등록되었습니다.")
             st.rerun()
@@ -316,12 +318,10 @@ else:
             
     st.markdown("---")
     
-    # 아랫부분: 장부 수정 및 삭제 관리 구역
-    st.subheader("?? 등록된 도감 수정 및 삭제실")
-    st.write("아래 표에서 데이터를 **직접 수정**하거나, 행 왼쪽을 누르고 키보드 **Delete 키를 눌러 삭제**할 수 있습니다.")
-    st.caption("?? 작업 후 아래의 [변경사항 도감에 최종 저장하기] 버튼을 눌러야 장부에 영구 반영됩니다.")
+    st.subheader("등록된 도감 수정 및 삭제실")
+    st.write("아래 표에서 데이터를 직접 수정하거나, 행 왼쪽을 누르고 키보드 Delete 키를 눌러 삭제할 수 있습니다.")
+    st.caption("작업 후 아래의 [변경사항 도감에 최종 저장하기] 버튼을 눌러야 장부에 영구 반영됩니다.")
     
-    # 현재 저장되어 있는 마스터 데이터를 표용 데이터프레임으로 변환
     db_list = []
     for name, stats in st.session_state.MEMBER_DATABASE.items():
         db_list.append({
@@ -335,7 +335,6 @@ else:
     if df_db.empty:
         st.info("현재 도감에 등록된 회원이 없습니다.")
     else:
-        # ?? [핵심 변형] num_rows="dynamic"을 주어 행 삭제(Delete) 및 셀 수정을 지원하는 마스터 에디터 배치!
         grid_master = st.data_editor(
             df_db, num_rows="dynamic", use_container_width=True, hide_index=True,
             column_config={
@@ -346,7 +345,6 @@ else:
             }
         )
         
-        # 표에 실시간 변화가 생겼다면 최종 저장 버튼 활성화
         if st.button("변경사항 도감에 최종 저장하기", use_container_width=True):
             new_database = {}
             for _, row in grid_master.iterrows():
