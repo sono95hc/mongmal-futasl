@@ -19,7 +19,7 @@ def get_blank_score_df(mode="3파전"):
         quarters = [f"{i}쿼터" for i in range(1, 10)]
         return pd.DataFrame({"블루": [None] * 9, "블랙": [None] * 9, "레드": [None] * 9}, index=quarters)
 
-# 1. 파일에서 데이터 읽어오기 함수
+# 1. 파일에서 데이터 읽어오기 함수 (★ 옛날 장부 데이터 자동 보정 엔진 탑재)
 def load_permanent_data():
     if os.path.exists(DB_FILE):
         try:
@@ -33,6 +33,12 @@ def load_permanent_data():
                         "김민재": {"공격": 2.0, "수비": 5.0, "키퍼": 3.0},
                         "조현우": {"공격": 1.0, "수비": 2.0, "키퍼": 5.0}
                     }
+                
+                # ?? [핵심 버그 수정] 만약 옛날 3파전 장부에 '블랙' 열이 누락되어 있다면 자동으로 채워넣어 에러 방지
+                if data.get("match_mode") == "3파전" and "score_data_dict" in data:
+                    if "블랙" not in data["score_data_dict"]:
+                        data["score_data_dict"]["블랙"] = [None] * 9
+                
                 return data
         except:
             pass
@@ -189,7 +195,7 @@ if page == menu_1:
         st.text_area("꾹 눌러서 복사 후 카톡 공지", value=katalk_text, height=140)
 
 # =========================================================================
-# 2페이지: 경기 기록실 (★ black -> 블랙 오타 전면 수정 완료)
+# 2페이지: 경기 기록실 
 # =========================================================================
 elif page == menu_2:
     st.title(f"실시간 경기 기록실 ({st.session_state.match_mode})")
@@ -205,34 +211,33 @@ elif page == menu_2:
     
     if st.session_state.match_mode == "3파전":
         default_match_idx = 0
-        if pd.notna(current_q_data["블루"]) and pd.notna(current_q_data["레드"]) and pd.isna(current_q_data["블랙"]):
+        if pd.notna(current_q_data.get("블루")) and pd.notna(current_q_data.get("레드")) and pd.isna(current_q_data.get("블랙")):
             default_match_idx = 0
-        elif pd.notna(current_q_data["블루"]) and pd.notna(current_q_data["블랙"]) and pd.isna(current_q_data["레드"]):
+        elif pd.notna(current_q_data.get("블루")) and pd.notna(current_q_data.get("블랙")) and pd.isna(current_q_data.get("레드")):
             default_match_idx = 1
-        elif pd.notna(current_q_data["블랙"]) and pd.notna(current_q_data["레드"]) and pd.isna(current_q_data["블루"]):
+        elif pd.notna(current_q_data.get("블랙")) and pd.notna(current_q_data.get("레드")) and pd.isna(current_q_data.get("블루")):
             default_match_idx = 2
             
         match_type = st.radio("이번 쿼터 경기 대진", ["블루 vs 레드", "블루 vs 블랙", "블랙 vs 레드"], index=default_match_idx)
         
         c1, c2 = st.columns(2)
         if match_type == "블루 vs 레드":
-            with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data["블루"]) else 0, step=1)
-            with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data["레드"]) else 0, step=1)
+            with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
+            with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
             val_black = None
         elif match_type == "블루 vs 블랙":
-            with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data["블루"]) else 0, step=1)
-            # ?? [버그 수정 포인트] 아래 "black" 오타를 "블랙"으로 완벽히 교체했습니다.
-            with c2: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data["블랙"]) else 0, step=1)
+            with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
+            with c2: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data.get("블랙")) else 0, step=1)
             val_red = None
         else:
-            with c1: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data["블랙"]) else 0, step=1)
-            with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data["레드"]) else 0, step=1)
+            with c1: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data.get("블랙")) else 0, step=1)
+            with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
             val_blue = None
             
     else:
         c1, c2 = st.columns(2)
-        with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data["블루"]) else 0, step=1)
-        with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data["레드"]) else 0, step=1)
+        with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
+        with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
         val_black = None
 
     if st.button("해당 쿼터 점수 저장하기", use_container_width=True, type="primary"):
@@ -257,9 +262,9 @@ elif page == menu_2:
     history = {t: {"W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "GD": 0, "PTS": 0, "MP": 0} for t in history_keys}
 
     for i in range(loop_count):
-        b_val = st.session_state.edited_score_df.iloc[i]["블루"]
-        r_val = st.session_state.edited_score_df.iloc[i]["레드"]
-        bl_val = st.session_state.edited_score_df.iloc[i]["블랙"] if st.session_state.match_mode == "3파전" else None
+        b_val = st.session_state.edited_score_df.iloc[i].get("블루")
+        r_val = st.session_state.edited_score_df.iloc[i].get("레드")
+        bl_val = st.session_state.edited_score_df.iloc[i].get("블랙") if st.session_state.match_mode == "3파전" else None
         
         valid_teams = []
         valid_scores = []
