@@ -10,14 +10,14 @@ st.set_page_config(page_title="몽말 팀배분 프로그램 by홍찬", layout="
 # --- ?? [파일 영구 저장 엔진] 시스템 설정 ---
 DB_FILE = "futsal_data.json"
 
-# 초기 데이터 구조 정의
+# 초기 데이터 구조 정의 (0 대신 None 빈칸으로 세팅하여 경기 안한 쿼터 분리)
 def get_blank_score_df(mode="3파전"):
     if mode == "2파전":
         quarters = [f"{i}쿼터" for i in range(1, 9)]
-        return pd.DataFrame({"블루": [0] * 8, "레드": [0] * 8}, index=quarters)
+        return pd.DataFrame({"블루": [None] * 8, "레드": [None] * 8}, index=quarters)
     else:
         quarters = [f"{i}쿼터" for i in range(1, 10)]
-        return pd.DataFrame({"블루": [0] * 9, "블랙": [0] * 9, "레드": [0] * 9}, index=quarters)
+        return pd.DataFrame({"블루": [None] * 9, "블랙": [None] * 9, "레드": [None] * 9}, index=quarters)
 
 # 1. 파일에서 데이터 읽어오기 함수
 def load_permanent_data():
@@ -52,6 +52,7 @@ def load_permanent_data():
 
 # 2. 파일에 데이터 영구 저장하기 함수
 def save_permanent_data():
+    # 저장 전 상호 호환성을 위해 None 값 처리 유지
     score_dict = st.session_state.edited_score_df.to_dict(orient="list")
     data_to_save = {
         "MEMBER_DATABASE": st.session_state.MEMBER_DATABASE,
@@ -71,17 +72,17 @@ if "initialized" not in st.session_state:
     
     mode = perm_data["match_mode"]
     quarters = [f"{i}쿼터" for i in range(1, 8 if mode == "2파전" else 10)]
-    st.session_state.edited_score_df = pd.DataFrame(perm_data["score_data_dict"], index=quarters)
+    
+    # 세션 복원 시 숫자 형식 유연화 (None값 보존)
+    raw_scores = perm_data["score_data_dict"]
+    st.session_state.edited_score_df = pd.DataFrame(raw_scores, index=quarters)
     st.session_state.current_teams = {}
     st.session_state.initialized = True
 
 # 3페이지 대량 입력용 표 초기화
 if "bulk_input_df" not in st.session_state:
     st.session_state.bulk_input_df = pd.DataFrame({
-        "이름": [""] * 15,
-        "공격": [3.0] * 15,
-        "수비": [3.0] * 15,
-        "키퍼": [3.0] * 15
+        "이름": [""] * 15, "공격": [3.0] * 15, "수비": [3.0] * 15, "키퍼": [3.0] * 15
     })
 
 # 상태 보존용 세션 플래그 생성
@@ -185,58 +186,105 @@ if page == menu_1:
         katalk_text = f"[풋살 팀 매칭 결과 ({st.session_state.match_mode})]\n"
         for t_name, members in st.session_state.current_teams.items():
             m_names = [p['name'] for p in members]
-            
-            # ?? [역대급 디테일 개조] 황금밸런스로 팀은 완벽히 짜여졌으나, 출력하기 직전에 이름만 시각적으로 마구 섞어줍니다!
             random.shuffle(m_names) 
-            
             katalk_text += f"\n{t_name}팀 ({len(members)}명)\n{', '.join(m_names)}\n"
             
         st.text_area("꾹 눌러서 복사 후 카톡 공지", value=katalk_text, height=140)
 
 # =========================================================================
-# ?? 2페이지: 경기 기록실
+# ?? 2페이지: 경기 기록실 (★ 모바일 100% 버버벅 탈출 스마트 폼 개조)
 # =========================================================================
 elif page == menu_2:
     st.title(f"실시간 경기 기록실 ({st.session_state.match_mode})")
-    st.write("각 쿼터별 스코어를 입력하세요. 점수를 적은 뒤 엔터를 치거나 다른 셀을 누르면 자동 실시간 저장됩니다.")
     
-    grid_score = st.data_editor(st.session_state.edited_score_df, use_container_width=True)
+    # ?? [모바일 최적화 핵심 1] 무거운 데이터 에디터 대신 큼직한 모바일 컴포넌트 조합 배치
+    st.subheader("쿼터 스코어 입력창")
+    st.write("경기가 끝난 쿼터를 고르고 점수를 입력한 뒤 저장 버튼을 누르세요.")
     
-    if not grid_score.equals(st.session_state.edited_score_df):
-        st.session_state.edited_score_df = grid_score
-        save_permanent_data()
+    loop_count = 8 if st.session_state.match_mode == "2파전" else 9
+    quarter_options = [f"{i}쿼터" for i in range(1, loop_count + 1)]
+    
+    col_q, col_btn = st.columns([2, 1])
+    with col_q:
+        selected_q = st.selectbox("기록할 쿼터 선택", quarter_options)
+    
+    # 선택한 쿼터의 기존 데이터 불러오기 (비어있으면 기본값 0으로 세팅)
+    current_q_data = st.session_state.edited_score_df.loc[selected_q]
+    
+    # 입력폼을 가로로 이쁘게 쪼개기
+    if st.session_state.match_mode == "2파전":
+        c1, c2 = st.columns(2)
+        with c1:
+            val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data["블루"]) else 0, step=1, key="input_blue")
+        with c2:
+            val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data["레드"]) else 0, step=1, key="input_red")
+        val_black = None
+    else:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data["블루"]) else 0, step=1, key="input_blue")
+        with c2:
+            val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data["블랙"]) else 0, step=1, key="input_black")
+        with c3:
+            val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data["레드"]) else 0, step=1, key="input_red")
 
+    # [점수 저장하기] 버튼을 누를때만 딱 한 번 영구 파일 장부에 세이브! (버벅임 종결)
+    if st.button("해당 쿼터 점수 저장하기", use_container_width=True, type="primary"):
+        st.session_state.edited_score_df.at[selected_q, "블루"] = val_blue
+        st.session_state.edited_score_df.at[selected_q, "레드"] = val_red
+        if val_black is not None:
+            st.session_state.edited_score_df.at[selected_q, "블랙"] = val_black
+            
+        save_permanent_data()
+        st.success(f"{selected_q} 점수가 성공적으로 저장되었습니다!")
+        st.rerun()
+
+    st.markdown("---")
+    st.subheader("현재까지 기록된 쿼터 현황판")
+    
+    # ?? [가독성 향상] 점수가 없는 None 칸은 눈에 편하게 하이픈(-)으로 치환해서 테이블 출력
+    display_score_df = st.session_state.edited_score_df.copy()
+    display_score_df = display_score_df.fillna("-")
+    st.dataframe(display_score_df, use_container_width=True)
+
+    # --- ?? 전적 계산 가동 엔진 (실제 진행된 경기만 필터링) ---
     history_keys = ["레드", "블루"] if st.session_state.match_mode == "2파전" else ["레드", "블랙", "블루"]
     history = {t: {"W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "GD": 0, "PTS": 0, "MP": 0} for t in history_keys}
-    loop_count = 8 if st.session_state.match_mode == "2파전" else 9
 
     for i in range(loop_count):
-        blue_score = st.session_state.edited_score_df.iloc[i]["블루"]
-        red_score = st.session_state.edited_score_df.iloc[i]["레드"]
-        black_score = st.session_state.edited_score_df.iloc[i]["블랙"] if st.session_state.match_mode == "3파전" else 0
+        q_name = f"{i+1}쿼터"
+        b_val = st.session_state.edited_score_df.iloc[i]["블루"]
+        r_val = st.session_state.edited_score_df.iloc[i]["레드"]
+        bl_val = st.session_state.edited_score_df.iloc[i]["블랙"] if st.session_state.match_mode == "3파전" else None
+        
+        # ?? [핵심 버그 수정] 모든 데이터가 비어있으면 아직 진행하지 않은 쿼터이므로 전적 연산에서 완전히 배제(패스)!
+        if pd.isna(b_val) and pd.isna(r_val) and (bl_val is None or pd.isna(bl_val)):
+            continue
+            
+        # 데이터가 하나라도 있으면 없는 값은 0으로 임시 매칭하여 승무패 판단
+        blue_score = int(b_val) if pd.notna(b_val) else 0
+        red_score = int(r_val) if pd.notna(r_val) else 0
+        black_score = int(bl_val) if (bl_val is not None and pd.notna(bl_val)) else 0
         
         t_pairs = []
         scores = []
         
         if st.session_state.match_mode == "2파전":
-            t_pairs = ["레드", "블루"]; scores = [int(red_score), int(blue_score)]
-            if blue_score == 0 and red_score == 0: continue
+            t_pairs = ["레드", "블루"]; scores = [red_score, blue_score]
         else:
+            # 3파전 쿼터 대진 규칙 적용 (실제 스코어가 들어간 팀 매칭)
             if i % 3 == 0:
-                t_pairs = ["레드", "블루"]; scores = [int(red_score), int(blue_score)]
-                if black_score > 0 and red_score == 0: t_pairs = ["블랙", "블루"]; scores = [int(black_score), int(blue_score)]
-                elif black_score > 0 and blue_score == 0: t_pairs = ["블랙", "레드"]; scores = [int(black_score), int(red_score)]
+                t_pairs = ["레드", "블루"]; scores = [red_score, blue_score]
+                if pd.notna(bl_val) and bl_val > 0 and pd.isna(r_val): t_pairs = ["블랙", "블루"]; scores = [black_score, blue_score]
+                elif pd.notna(bl_val) and bl_val > 0 and pd.isna(b_val): t_pairs = ["블랙", "레드"]; scores = [black_score, red_score]
             elif i % 3 == 1:
-                t_pairs = ["블랙", "레드"]; scores = [int(black_score), int(red_score)]
-                if blue_score > 0 and black_score == 0: t_pairs = ["블루", "레드"]; scores = [int(blue_score), int(red_score)]
-                elif blue_score > 0 and red_score == 0: t_pairs = ["블루", "블랙"]; scores = [int(blue_score), int(black_score)]
+                t_pairs = ["블랙", "레드"]; scores = [black_score, red_score]
+                if pd.notna(b_val) and b_val > 0 and pd.isna(bl_val): t_pairs = ["블루", "레드"]; scores = [blue_score, red_score]
+                elif pd.notna(b_val) and b_val > 0 and pd.isna(r_val): t_pairs = ["블루", "블랙"]; scores = [blue_score, black_score]
             else:
-                t_pairs = ["블루", "블랙"]; scores = [int(blue_score), int(black_score)]
-                if red_score > 0 and blue_score == 0: t_pairs = ["레드", "블랙"]; scores = [int(red_score), int(black_score)]
-                elif red_score > 0 and black_score == 0: t_pairs = ["레드", "블루"]; scores = [int(red_score), int(blue_score)]
-
-            if scores[0] == 0 and scores[1] == 0 and (blue_score == 0 and black_score == 0 and red_score == 0):
-                continue
+                t_pairs = ["블루", "블랙"]; scores = [blue_score, black_score]
+                if pd.notna(r_val) and r_val > 0 and pd.isna(b_val): t_pairs = ["레드", "블랙"]; scores = [red_score, black_score]
+                elif pd.notna(r_val) and r_val > 0 and pd.isna(bl_val): t_pairs = ["레드", "블루"]; scores = [red_score, blue_score]
             
         tm1, tm2 = t_pairs[0], t_pairs[1]
         sc1, sc2 = scores[0], scores[1]
