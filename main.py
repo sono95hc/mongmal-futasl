@@ -70,17 +70,19 @@ if "initialized" not in st.session_state:
     st.session_state.match_mode = perm_data["match_mode"]
     
     mode = perm_data["match_mode"]
-    quarters = [f"{i}쿼?" for i in range(1, 8 if mode == "2파전" else 10)]
     quarters = [f"{i}쿼터" for i in range(1, 8 if mode == "2파전" else 10)]
     
     raw_scores = perm_data["score_data_dict"]
-    # 만약 구버전 잔재로 '경기팀' 열이 들어가 있다면 제거하여 구조 통합
     if "경기팀" in raw_scores:
         del raw_scores["경기팀"]
         
     st.session_state.edited_score_df = pd.DataFrame(raw_scores, index=quarters)
     st.session_state.current_teams = {}
     st.session_state.initialized = True
+
+# 현재 선택된 대진 모드를 임시 기억할 세션 변수 생성
+if "temp_match_type" not in st.session_state:
+    st.session_state.temp_match_type = "블루 vs 레드"
 
 # 3페이지 대량 입력용 표 초기화
 if "bulk_input_df" not in st.session_state:
@@ -194,13 +196,13 @@ if page == menu_1:
         st.text_area("꾹 눌러서 복사 후 카톡 공지", value=katalk_text, height=140)
 
 # =========================================================================
-# 2페이지: 경기 기록실 (★ 이모티콘 100% 박멸 + 대진 고정 자동화 버전)
+# 2페이지: 경기 기록실 (★ 원클릭 완벽 프리 대진 변환 버전)
 # =========================================================================
 elif page == menu_2:
     st.title(f"실시간 경기 기록실 ({st.session_state.match_mode})")
     
     st.subheader("쿼터 스코어 입력창")
-    st.write("경기가 끝난 쿼터를 고르면, 대진에 맞춰 점수 입력창이 자동으로 나타납니다.")
+    st.write("경기가 끝난 쿼터를 고르고, 시합을 뛴 대진 버튼을 누른 뒤 점수를 입력하세요.")
     
     loop_count = 8 if st.session_state.match_mode == "2파전" else 9
     quarter_options = [f"{i}쿼터" for i in range(1, loop_count + 1)]
@@ -212,23 +214,34 @@ elif page == menu_2:
     val_black = None
     val_red = None
     
-    # ?? [대수술] 복잡한 대진 선택 수동 기능 삭제! 순서대로 자동 매칭 작동
+    # ?? [대혁신] 에러를 일으키던 라디오 버튼을 싹 밀어버리고 '원클릭 전환 버튼' 도입!
     if st.session_state.match_mode == "3파전":
-        q_idx = int(selected_q.replace("쿼터", "")) - 1
+        st.write("이번 쿼터 경기팀 선택하기")
+        btn_cols = st.columns(3)
+        with btn_cols[0]:
+            if st.button("블루 vs 레드", use_container_width=True): st.session_state.temp_match_type = "블루 vs 레드"
+        with btn_cols[1]:
+            if st.button("블루 vs 블랙", use_container_width=True): st.session_state.temp_match_type = "블루 vs 블랙"
+        with btn_cols[2]:
+            if st.button("블랙 vs 레드", use_container_width=True): st.session_state.temp_match_type = "블랙 vs 레드"
+            
+        # 어떤 버튼이 눌려있는지 직관적으로 명시
+        match_type = st.session_state.temp_match_type
+        st.info(f"현재 입력 대기 중인 매치: [{match_type}]")
         
         c1, c2 = st.columns(2)
-        if q_idx % 3 == 0: # 1, 4, 7 쿼터: 블루 vs 레드
-            st.info(f"현재 선택된 {selected_q}의 매치는 [블루 vs 레드] 입니다.")
+        if match_type == "블루 vs 레드":
             with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
             with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
-        elif q_idx % 3 == 1: # 2, 5, 8 쿼터: 블루 vs 블랙
-            st.info(f"현재 선택된 {selected_q}의 매치는 [블루 vs 블랙] 입니다.")
+            val_black = None
+        elif match_type == "블루 vs 블랙":
             with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
             with c2: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data.get("블랙")) else 0, step=1)
-        else: # 3, 6, 9 쿼터: 블랙 vs 레드
-            st.info(f"현재 선택된 {selected_q}의 매치는 [블랙 vs 레드] 입니다.")
+            val_red = None
+        else:
             with c1: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data.get("블랙")) else 0, step=1)
             with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
+            val_blue = None
             
     else: # 2파전일 때
         c1, c2 = st.columns(2)
@@ -236,6 +249,7 @@ elif page == menu_2:
         with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
 
     if st.button("해당 쿼터 점수 저장하기", use_container_width=True, type="primary"):
+        # 기존 데이터를 싹 비우고 새롭게 매칭된 데이터만 깨끗하게 덮어쓰기 (쉬는 팀 None 강제 주입)
         st.session_state.edited_score_df.at[selected_q, "블루"] = val_blue
         st.session_state.edited_score_df.at[selected_q, "레드"] = val_red
         if st.session_state.match_mode == "3파전":
@@ -247,9 +261,7 @@ elif page == menu_2:
 
     st.markdown("---")
     st.subheader("현재까지 기록된 쿼터 현황판")
-    st.write("데이터 수정이 필요한 경우 관리자 인증 후 메뉴를 사용하세요.")
     
-    # 오작동을 유발하던 데이터 에디터 표를 '읽기 전용' 안전 테이블로 변경 (모바일 속도 향상)
     display_score_df = st.session_state.edited_score_df.copy()
     display_score_df = display_score_df.fillna("-")
     st.dataframe(display_score_df, use_container_width=True)
@@ -335,7 +347,7 @@ else:
     )
     st.session_state.bulk_input_df = grid_bulk
 
-    if st.button("도감에 신규 데이터 일괄 저장하기", use_container_width=True, type="primary"):
+    if st.button("до감에 신규 데이터 일괄 저장하기", use_container_width=True, type="primary"):
         saved_count = 0
         for _, row in grid_bulk.iterrows():
             name = str(row["이름"]).strip()
