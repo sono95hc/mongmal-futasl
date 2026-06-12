@@ -3,6 +3,7 @@ import random
 import pandas as pd
 import json
 import os
+import itertools
 from datetime import datetime
 
 st.set_page_config(page_title="몽말 팀배분 프로그램 by홍찬", layout="centered")
@@ -100,6 +101,8 @@ if "show_warning" not in st.session_state:
     st.session_state.show_warning = False
 if "confirm_close" not in st.session_state:
     st.session_state.confirm_close = False
+if "current_q_idx" not in st.session_state:
+    st.session_state.current_q_idx = 0
 
 menu_1 = "1. 명단 및 팀배분"
 menu_2 = "2. 경기 기록실"
@@ -111,7 +114,7 @@ st.sidebar.title("MENU")
 st.sidebar.markdown("---")
 st.sidebar.subheader("관리자 인증")
 admin_password = st.sidebar.text_input("비밀번호 입력", type="password")
-is_admin = (admin_password == "1234")
+is_admin = (admin_password == "0330")
 
 if is_admin:
     menu_options = [menu_1, menu_2, menu_3, menu_4, menu_5]
@@ -129,7 +132,7 @@ if page == menu_1:
     st.title("몽말 팀배분 프로그램")
     
     st.subheader("[1단계] 참석자 입력")
-    st.write("오늘 참석한 선수들의 이름을 띄어쓰기로 구분하여 적어주세요. (버벅임 없음)")
+    st.write("오늘 참석한 선수들의 이름을 띄어쓰기로 구분하여 적어주세요.")
     
     current_att_str = " ".join([x for x in st.session_state.attendance_list if x])
     att_input = st.text_area("명단 입력 (예: 손흥민 이강인 황희찬)", value=current_att_str, height=100)
@@ -146,9 +149,17 @@ if page == menu_1:
 
     st.markdown("---")
     st.subheader("[3단계] 팀 편성 (자동+수동 조합)")
-    st.write("AI 버튼을 누르면 자동 배분되며, 아래 목록에서 원하는 팀으로 바로 수정 가능합니다.")
+    st.write("AI 버튼을 누르면 실력과 지난주 팀 조합을 분석하여 자동 배분됩니다.")
     
     if st.button("AI 자동 밸런스 매칭 가동", use_container_width=True):
+        
+        # [핵심 로직] 지난주 팀 데이터 추출
+        prev_teams = {}
+        if st.session_state.history_logs:
+            last_log = st.session_state.history_logs[-1]
+            for p_name, f_info in last_log.get("fines", {}).items():
+                prev_teams[p_name] = f_info.get("team")
+                
         players = []
         for name in current_att_list:
             if name in st.session_state.MEMBER_DATABASE:
@@ -159,22 +170,48 @@ if page == menu_1:
             players.append({"name": name, "total": total_score})
             
         players.sort(key=lambda x: x['total'], reverse=True)
-        assigned_dict = {}
+        teams_keys = ["레드", "블루"] if "2파전" in selected_mode else ["블랙", "레드", "블루"]
+        new_teams = {t: [] for t in teams_keys}
         
-        if "2파전" in selected_mode:
-            teams = ["레드", "블루"]
-            for idx, p in enumerate(players):
-                assigned_dict[p["name"]] = teams[idx % 2]
-        else:
-            teams = ["블랙", "레드", "블루"]
-            order = [0, 1, 2]
-            for idx, p in enumerate(players):
-                if idx % 3 == 0 and idx > 0: random.shuffle(order)
-                assigned_dict[p["name"]] = teams[order[idx % 3]]
+        # 상위권부터 차례대로 묶음을 나누어 배정 (전주 같은 팀 회피 알고리즘)
+        for i in range(0, len(players), len(teams_keys)):
+            chunk = players[i:i+len(teams_keys)]
+            best_perm = None
+            min_penalty = float('inf')
+            
+            perms = list(itertools.permutations(teams_keys, len(chunk)))
+            random.shuffle(perms)
+            
+            for perm in perms:
+                current_penalty = 0
+                temp_teams = {t: list(new_teams[t]) for t in teams_keys}
+                
+                for p, t in zip(chunk, perm):
+                    temp_teams[t].append(p)
+                    
+                for t_name, members in temp_teams.items():
+                    for idx1 in range(len(members)):
+                        for idx2 in range(idx1+1, len(members)):
+                            m1 = members[idx1]["name"]
+                            m2 = members[idx2]["name"]
+                            # 전주에 같은 팀이었다면 패널티 부과 (잘하는 사람일수록 패널티가 커서 무조건 찢어짐)
+                            if m1 in prev_teams and m2 in prev_teams and prev_teams[m1] == prev_teams[m2]:
+                                current_penalty += (members[idx1]["total"] + members[idx2]["total"])
+                                
+                if current_penalty < min_penalty:
+                    min_penalty = current_penalty
+                    best_perm = perm
+                    
+            for p, t in zip(chunk, best_perm):
+                new_teams[t].append(p)
+                
+        assigned_dict = {}
+        for t_name, members in new_teams.items():
+            for p in members:
+                assigned_dict[p["name"]] = t_name
                 
         st.session_state.ai_teams = assigned_dict
         
-        # ★ [핵심 패치] AI가 짠 결과를 화면(선택박스)에도 억지로 덮어씌워버립니다!
         for p_name, t_name in assigned_dict.items():
             st.session_state[f"sel_{p_name}"] = t_name
             
@@ -219,6 +256,7 @@ if page == menu_1:
                         st.session_state.current_teams[t_name].append({"name": p_name})
                         
                 st.session_state.edited_score_df = get_blank_score_df(new_mode)
+                st.session_state.current_q_idx = 0 # 새로운 팀 짜면 1쿼터로 세팅
                 save_permanent_data()
                 st.rerun()
                 
@@ -248,12 +286,15 @@ elif page == menu_2:
     st.title(f"실시간 경기 기록실 ({st.session_state.match_mode})")
     
     st.subheader("쿼터 스코어 입력창")
-    st.write("경기가 끝난 쿼터를 고르고, 시합을 뛴 대진 버튼을 누른 뒤 점수를 입력하세요.")
+    st.write("저장 시 자동으로 다음 쿼터로 넘어가며, 언제든 박스를 눌러 이전 쿼터를 수정할 수 있습니다.")
     
     loop_count = 8 if st.session_state.match_mode == "2파전" else 9
     quarter_options = [f"{i}쿼터" for i in range(1, loop_count + 1)]
     
-    selected_q = st.selectbox("기록할 쿼터 선택", quarter_options)
+    # 세션 인덱스와 셀렉트박스 동기화 (수동 변경 감지)
+    selected_q = st.selectbox("기록할 쿼터 선택", quarter_options, index=st.session_state.current_q_idx)
+    st.session_state.current_q_idx = quarter_options.index(selected_q)
+    
     current_q_data = st.session_state.edited_score_df.loc[selected_q]
     
     val_blue = None
@@ -277,12 +318,15 @@ elif page == menu_2:
         if match_type == "블루 vs 레드":
             with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
             with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
+            val_black = None
         elif match_type == "블루 vs 블랙":
             with c1: val_blue = st.number_input("블루 점수", min_value=0, max_value=99, value=int(current_q_data["블루"]) if pd.notna(current_q_data.get("블루")) else 0, step=1)
             with c2: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data.get("블랙")) else 0, step=1)
+            val_red = None
         else:
             with c1: val_black = st.number_input("블랙 점수", min_value=0, max_value=99, value=int(current_q_data["블랙"]) if pd.notna(current_q_data.get("블랙")) else 0, step=1)
             with c2: val_red = st.number_input("레드 점수", min_value=0, max_value=99, value=int(current_q_data["레드"]) if pd.notna(current_q_data.get("레드")) else 0, step=1)
+            val_blue = None
             
     else:
         c1, c2 = st.columns(2)
@@ -297,6 +341,11 @@ elif page == menu_2:
             
         save_permanent_data()
         st.success(f"[{selected_q}] 점수가 성공적으로 저장되었습니다.")
+        
+        # 쿼터 자동 넘김 로직
+        if st.session_state.current_q_idx < loop_count - 1:
+            st.session_state.current_q_idx += 1
+            
         st.rerun()
 
     st.markdown("---")
@@ -406,6 +455,7 @@ elif page == menu_2:
         st.markdown("---")
         if st.button("오늘 경기 스코어판 전체 초기화 (관리자 전용)", use_container_width=True):
             st.session_state.edited_score_df = get_blank_score_df(st.session_state.match_mode)
+            st.session_state.current_q_idx = 0
             save_permanent_data()
             st.rerun()
 
@@ -526,7 +576,7 @@ else:
         saved_count = 0
         for _, row in grid_bulk.iterrows():
             name = str(row["이름"]).strip()
-            if name and name and name != "None" and name != "":
+            if name and name != "None" and name != "":
                 st.session_state.MEMBER_DATABASE[name] = {
                     "공격": round(float(row["공격"]), 2), "수비": round(float(row["수비"]), 2), "키퍼": round(float(row["키퍼"]), 2)
                 }
