@@ -20,40 +20,9 @@ def get_blank_score_df(mode="3파전"):
         quarters = [f"{i}쿼터" for i in range(1, 10)]
         return pd.DataFrame({"블루": [None] * 9, "블랙": [None] * 9, "레드": [None] * 9}, index=quarters)
 
-# 1. 파일에서 데이터 읽어오기 함수 (구조 보정 및 데이터베이스 통합)
+# 1. 파일에서 데이터 읽어오기 함수 (옛날 장부 완벽 강제 자동 보정)
 def load_permanent_data():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                
-                # 신규 저장소 구조 예외 처리 안전장치
-                if "MEMBER_DATABASE" not in data:
-                    data["MEMBER_DATABASE"] = {
-                        "손흥민": {"공격": 5.0, "수비": 4.0, "키퍼": 2.0},
-                        "이강인": {"공격": 5.0, "수비": 3.0, "키퍼": 2.0},
-                        "황희찬": {"공격": 4.0, "수비": 3.0, "키퍼": 1.0},
-                        "김민재": {"공격": 2.0, "수비": 5.0, "키퍼": 3.0},
-                        "조현우": {"공격": 1.0, "수비": 2.0, "키퍼": 5.0}
-                    }
-                if "history_logs" not in data:
-                    data["history_logs"] = [] # 날짜별 매치 마감 기록 장부
-                if "attendance_list" not in data:
-                    data["attendance_list"] = ["손흥민", "이강인", "황희찬", "김민재", "조현우"] + [""] * 13
-                if "match_mode" not in data:
-                    data["match_mode"] = "3파전"
-                if "score_data_dict" not in data:
-                    data["score_data_dict"] = get_blank_score_df("3파전").to_dict(orient="list")
-                    
-                # 구버전 장부 열 구조 싱크 보정
-                if "경기팀" in data["score_data_dict"]:
-                    del data["score_data_dict"]["경기팀"]
-                    
-                return data
-        except:
-            pass
-    
-    return {
+    default_data = {
         "MEMBER_DATABASE": {
             "손흥민": {"공격": 5.0, "수비": 4.0, "키퍼": 2.0},
             "이강인": {"공격": 5.0, "수비": 3.0, "키퍼": 2.0},
@@ -66,6 +35,32 @@ def load_permanent_data():
         "score_data_dict": get_blank_score_df("3파전").to_dict(orient="list"),
         "history_logs": []
     }
+
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                
+                # ?? [핵심 버그 수정] 어떤 구버전 파일이 들어와도 에러를 내지 않고 기본 구조를 강제 수정 주입합니다.
+                if "MEMBER_DATABASE" not in data:
+                    data["MEMBER_DATABASE"] = default_data["MEMBER_DATABASE"]
+                if "attendance_list" not in data:
+                    data["attendance_list"] = default_data["attendance_list"]
+                if "match_mode" not in data:
+                    data["match_mode"] = "3파전"
+                if "score_data_dict" not in data:
+                    data["score_data_dict"] = default_data["score_data_dict"]
+                if "history_logs" not in data:
+                    data["history_logs"] = []
+                    
+                if "경기팀" in data["score_data_dict"]:
+                    del data["score_data_dict"]["경기팀"]
+                    
+                return data
+        except:
+            pass
+            
+    return default_data
 
 # 2. 파일에 데이터 영구 저장하기 함수
 def save_permanent_data():
@@ -80,7 +75,7 @@ def save_permanent_data():
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data_to_save, f, ensure_ascii=False, indent=4)
 
-# --- 최초 진입 시 장부 데이터 세션 상주 ---
+# --- 최초 진입 시 장부 데이터 세션 안전 보존 로드 ---
 if "initialized" not in st.session_state:
     perm_data = load_permanent_data()
     st.session_state.MEMBER_DATABASE = perm_data["MEMBER_DATABASE"]
@@ -103,7 +98,7 @@ if "bulk_input_df" not in st.session_state:
 if "show_warning" not in st.session_state:
     st.session_state.show_warning = False
 
-# --- 메뉴 구조 정의 (회원 오픈 4개, 관리자 5번 이동) ---
+# --- 메뉴 구조 정의 ---
 menu_1 = "1. 명단 및 팀배분"
 menu_2 = "2. 경기 기록실"
 menu_3 = "3. 날짜별 기록실"
@@ -147,6 +142,7 @@ if page == menu_1:
     if st.button("팀 짜기 시작", use_container_width=True, type="primary"):
         st.session_state.show_warning = True
 
+    # ?? [물음표 완벽 제거] 텍스트 앞부분의 모든 기호 삭제 완료
     if st.session_state.show_warning:
         st.warning("주의: 팀을 새로 짜면 현재 경기 기록실의 점수가 모두 초기화됩니다. 계속 진행하시겠습니까?")
         
@@ -324,7 +320,6 @@ elif page == menu_2:
         })
     st.table(pd.DataFrame(final_display).set_index("순위"))
 
-    # ?? [새 기능] 오늘 경기 벌금 자동 마감 정산 시스템 (팀원 배분 명단이 존재할 때만 작동)
     if st.session_state.current_teams:
         st.markdown("---")
         st.subheader("오늘의 정산 마감 구역")
@@ -332,8 +327,6 @@ elif page == menu_2:
         
         if st.button("오늘 경기 정산 및 마감하기", use_container_width=True, type="primary"):
             today_str = datetime.now().strftime("%Y-%m-%d")
-            
-            # 최종 랭킹 순서대로 팀 정렬
             ranked_teams = sort_df["팀"].tolist()
             
             log_entry = {
@@ -343,13 +336,11 @@ elif page == menu_2:
                 "fines": {}
             }
             
-            # 순위별 명단 매칭 및 벌금 부과 연산
             for rank_idx, t_name in enumerate(ranked_teams):
                 rank_num = rank_idx + 1
                 team_players = [p["name"] for p in st.session_state.current_teams[t_name]]
                 log_entry["ranks"][f"{rank_num}위"] = f"{t_name}팀 ({', '.join(team_players)})"
                 
-                # 벌금 룰 계산 (2파전 vs 3파전)
                 if st.session_state.match_mode == "2파전":
                     fine_amount = 0 if rank_num == 1 else 2000
                 else:
@@ -360,10 +351,9 @@ elif page == menu_2:
                 for p_name in team_players:
                     log_entry["fines"][p_name] = {"team": t_name, "rank": rank_num, "fine": fine_amount}
             
-            # 영구 장부에 마감 일지 추가
             st.session_state.history_logs.append(log_entry)
             save_permanent_data()
-            st.success(f"정산 완료! {today_str}자 전적과 회비 장부가 안전하게 기록되었습니다. 3번 메뉴에서 확인하세요.")
+            st.success(f"정산 완료! {today_str}자 전적과 회비 장부가 안전하게 기록되었습니다.")
             st.rerun()
     
     if is_admin:
@@ -374,18 +364,18 @@ elif page == menu_2:
             st.rerun()
 
 # =========================================================================
-# 3페이지: 날짜별 기록실 (★ 새로운 메뉴창 - 대량 일지 가독성 표출)
+# 3페이지: 날짜별 기록실
 # =========================================================================
 elif page == menu_3:
     st.title("3. 날짜별 기록실")
     st.write("오늘 경기 정산 및 마감하기 버튼을 누른 매주 경기 결과가 날짜별로 누적 저장되는 공간입니다.")
     
-    if not st.session_state.history_logs:
+    # ?? [에러 해결 철통 방어] 세션 상태에 데이터가 유무를 가장 먼저 검사
+    if "history_logs" not in st.session_state or not st.session_state.history_logs:
         st.info("아직 마감된 정산 장부 기록이 없습니다. 경기 종료 후 2번 메뉴 하단에서 마감을 진행해 주세요.")
     else:
         for item in reversed(st.session_state.history_logs):
             with st.expander(f"경기 날짜 : {item['date']} ({item['mode']})", expanded=True):
-                # 순위 가독성 좋게 출력
                 st.markdown(f"**1등 우승팀:** {item['ranks'].get('1위', '정보 없음')}")
                 if item['mode'] == "3파전":
                     st.write(f"2등 준우승팀: {item['ranks'].get('2위', '정보 없음')}")
@@ -393,7 +383,6 @@ elif page == menu_3:
                 else:
                     st.write(f"2등 준우승팀: {item['ranks'].get('2위', '정보 없음')}")
                     
-                # 벌금 내역 요약 표 구성
                 st.markdown("**이날의 개인별 벌금 정산표**")
                 fine_table = []
                 for p_name, f_info in item["fines"].items():
@@ -403,30 +392,28 @@ elif page == menu_3:
                 st.table(pd.DataFrame(fine_table))
 
 # =========================================================================
-# 4페이지: 회원별 통계실 (★ 새로운 메뉴창 - 회원별 누적 승률 및 주별 벌금)
+# 4페이지: 회원별 통계실
 # =========================================================================
 elif page == menu_4:
     st.title("4. 회원별 통계실")
     st.write("등록된 전 회원의 매치 참여 경기수, 우승 확률(승률) 및 누적 회비 벌금 정산 내역입니다.")
     
-    # 도감에 등록된 회원 목록 기준으로 통계 테이블 생성
     stats_map = {}
     for name in st.session_state.MEMBER_DATABASE.keys():
         stats_map[name] = {"MP": 0, "W": 0, "total_fine": 0}
         
-    # 날짜별 누적 장부를 싹 돌면서 개인별 승무패 및 벌금 수치 연산
-    for item in st.session_state.history_logs:
-        for p_name, f_info in item["fines"].items():
-            if p_name not in stats_map:
-                # 도감엔 없지만 과거 기록에 있는 경우 예외 추가
-                stats_map[p_name] = {"MP": 0, "W": 0, "total_fine": 0}
+    # ?? [에러 해결 철통 방어] 비어있을 경우 루프를 돌지 않도록 검증 완비
+    if "history_logs" in st.session_state and st.session_state.history_logs:
+        for item in st.session_state.history_logs:
+            for p_name, f_info in item["fines"].items():
+                if p_name not in stats_map:
+                    stats_map[p_name] = {"MP": 0, "W": 0, "total_fine": 0}
+                
+                stats_map[p_name]["MP"] += 1
+                if f_info["rank"] == 1:
+                    stats_map[p_name]["W"] += 1
+                stats_map[p_name]["total_fine"] += f_info["fine"]
             
-            stats_map[p_name]["MP"] += 1
-            if f_info["rank"] == 1:
-                stats_map[p_name]["W"] += 1
-            stats_map[p_name]["total_fine"] += f_info["fine"]
-            
-    # 화면 출력용 데이터프레임 변환
     display_stats = []
     for p_name, s_data in stats_map.items():
         win_rate = (s_data["W"] / s_data["MP"] * 100) if s_data["MP"] > 0 else 0.0
@@ -442,12 +429,11 @@ elif page == menu_4:
     if df_stats.empty:
         st.info("누적된 회원 전적 데이터가 없습니다.")
     else:
-        # 승률 순으로 랭킹 정렬하여 표출
         df_stats = df_stats.sort_values(by="우승 횟수", ascending=False).reset_index(drop=True)
         st.dataframe(df_stats, use_container_width=True, hide_index=True)
 
 # =========================================================================
-# 5페이지: 회원별 점수 관리실 (관리자 전용 메뉴로 하강)
+# 5페이지: 회원별 점수 관리실
 # =========================================================================
 else:
     st.title("5. 회원별 점수 관리실")
