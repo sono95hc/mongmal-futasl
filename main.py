@@ -30,9 +30,7 @@ def load_permanent_data():
         "attendance_list": ["손흥민", "이강인", "황희찬", "김민재", "조현우"],
         "match_mode": "3파전",
         "score_data_dict": get_blank_score_df("3파전").to_dict(orient="list"),
-        "history_logs": [],
-        "current_teams": {},
-        "current_q_idx": 0
+        "history_logs": []
     }
 
     if os.path.exists(DB_FILE):
@@ -40,14 +38,16 @@ def load_permanent_data():
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 
-                if "MEMBER_DATABASE" not in data: data["MEMBER_DATABASE"] = default_data["MEMBER_DATABASE"]
-                if "attendance_list" not in data: data["attendance_list"] = default_data["attendance_list"]
-                if "match_mode" not in data: data["match_mode"] = "3파전"
-                if "score_data_dict" not in data: data["score_data_dict"] = default_data["score_data_dict"]
-                if "history_logs" not in data: data["history_logs"] = []
-                # [핵심 수정] 팀 명단과 현재 쿼터 기억을 장부에서 불러옵니다.
-                if "current_teams" not in data: data["current_teams"] = {}
-                if "current_q_idx" not in data: data["current_q_idx"] = 0
+                if "MEMBER_DATABASE" not in data:
+                    data["MEMBER_DATABASE"] = default_data["MEMBER_DATABASE"]
+                if "attendance_list" not in data:
+                    data["attendance_list"] = default_data["attendance_list"]
+                if "match_mode" not in data:
+                    data["match_mode"] = "3파전"
+                if "score_data_dict" not in data:
+                    data["score_data_dict"] = default_data["score_data_dict"]
+                if "history_logs" not in data:
+                    data["history_logs"] = []
                     
                 if "경기팀" in data["score_data_dict"]:
                     del data["score_data_dict"]["경기팀"]
@@ -61,28 +61,26 @@ def load_permanent_data():
 def save_permanent_data():
     score_dict = st.session_state.edited_score_df.to_dict(orient="list")
     clean_attendance = [x for x in st.session_state.attendance_list if x.strip()]
-    
     data_to_save = {
         "MEMBER_DATABASE": st.session_state.MEMBER_DATABASE,
         "attendance_list": clean_attendance,
         "match_mode": st.session_state.match_mode,
         "score_data_dict": score_dict,
-        "history_logs": st.session_state.get("history_logs", []),
-        "current_teams": st.session_state.get("current_teams", {}),
-        "current_q_idx": st.session_state.get("current_q_idx", 0)
+        "history_logs": st.session_state.get("history_logs", [])
     }
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data_to_save, f, ensure_ascii=False, indent=4)
 
 perm_data = load_permanent_data()
 
-if "MEMBER_DATABASE" not in st.session_state: st.session_state.MEMBER_DATABASE = perm_data["MEMBER_DATABASE"]
-if "attendance_list" not in st.session_state: st.session_state.attendance_list = [x for x in perm_data["attendance_list"] if x.strip()]
-if "match_mode" not in st.session_state: st.session_state.match_mode = perm_data["match_mode"]
-if "history_logs" not in st.session_state: st.session_state.history_logs = perm_data["history_logs"]
-if "current_teams" not in st.session_state: st.session_state.current_teams = perm_data.get("current_teams", {})
-if "current_q_idx" not in st.session_state: st.session_state.current_q_idx = perm_data.get("current_q_idx", 0)
-
+if "MEMBER_DATABASE" not in st.session_state:
+    st.session_state.MEMBER_DATABASE = perm_data["MEMBER_DATABASE"]
+if "attendance_list" not in st.session_state:
+    st.session_state.attendance_list = [x for x in perm_data["attendance_list"] if x.strip()]
+if "match_mode" not in st.session_state:
+    st.session_state.match_mode = perm_data["match_mode"]
+if "history_logs" not in st.session_state:
+    st.session_state.history_logs = perm_data["history_logs"]
 if "ai_teams" not in st.session_state:
     st.session_state.ai_teams = {}
 
@@ -91,6 +89,8 @@ if "edited_score_df" not in st.session_state:
     quarters = [f"{i}쿼터" for i in range(1, 8 if mode == "2파전" else 10)]
     st.session_state.edited_score_df = pd.DataFrame(perm_data["score_data_dict"], index=quarters)
 
+if "current_teams" not in st.session_state:
+    st.session_state.current_teams = {}
 if "temp_match_type" not in st.session_state:
     st.session_state.temp_match_type = "블루 vs 레드"
 if "bulk_input_df" not in st.session_state:
@@ -101,6 +101,8 @@ if "show_warning" not in st.session_state:
     st.session_state.show_warning = False
 if "confirm_close" not in st.session_state:
     st.session_state.confirm_close = False
+if "current_q_idx" not in st.session_state:
+    st.session_state.current_q_idx = 0
 
 menu_1 = "1. 명단 및 팀배분"
 menu_2 = "2. 경기 기록실"
@@ -111,8 +113,14 @@ menu_5 = "5. 회원별 점수"
 st.sidebar.title("MENU")
 st.sidebar.markdown("---")
 st.sidebar.subheader("관리자 인증")
+
+try:
+    admin_secret_pw = st.secrets["ADMIN_PW"]
+except:
+    admin_secret_pw = "secret_not_set_in_streamlit"
+
 admin_password = st.sidebar.text_input("비밀번호 입력", type="password")
-is_admin = (admin_password == "0330")
+is_admin = (admin_password == admin_secret_pw) if admin_password else False
 
 if is_admin:
     menu_options = [menu_1, menu_2, menu_3, menu_4, menu_5]
@@ -252,7 +260,6 @@ if page == menu_1:
                 st.session_state.edited_score_df = get_blank_score_df(new_mode)
                 st.session_state.current_q_idx = 0
                 
-                # [핵심 수정] 확정된 팀 데이터를 영구 장부에 즉시 저장
                 save_permanent_data()
                 st.rerun()
                 
@@ -334,7 +341,6 @@ elif page == menu_2:
         if st.session_state.match_mode == "3파전":
             st.session_state.edited_score_df.at[selected_q, "블랙"] = val_black
             
-        # 쿼터 자동 넘김
         if st.session_state.current_q_idx < loop_count - 1:
             st.session_state.current_q_idx += 1
             
@@ -398,7 +404,6 @@ elif page == menu_2:
         })
     st.table(pd.DataFrame(final_display).set_index("순위"))
 
-    # 팀 배정이 되어 있어야만 마감 버튼이 노출됨
     if st.session_state.current_teams:
         st.markdown("---")
         st.subheader("오늘의 정산 마감 구역")
