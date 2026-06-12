@@ -119,7 +119,7 @@ st.sidebar.caption("제작자: by홍찬")
 
 
 # =========================================================================
-# 1페이지
+# 1페이지 (자동/수동 하이브리드 팀 편성표 개조)
 # =========================================================================
 if page == menu_1:
     st.title("몽말 팀배분 프로그램")
@@ -131,72 +131,115 @@ if page == menu_1:
     if grid_result["이름"].tolist() != st.session_state.attendance_list:
         st.session_state.attendance_list = grid_result["이름"].tolist()
         save_permanent_data()
-    
+        
     st.markdown("---")
     st.subheader("경기 방식 설정")
     selected_mode = st.radio("오늘 매치 방식을 골라주세요", ["2파전 (8쿼터)", "3파전 (9쿼터)"], index=0 if st.session_state.match_mode == "2파전" else 1)
 
-    if st.button("팀 짜기 시작", use_container_width=True, type="primary"):
+    # 현재 참석자 명단 추출
+    current_attending = [str(n).strip() for n in st.session_state.attendance_list if str(n).strip() and str(n).strip() != "None"]
+    
+    # 팀 배정용 데이터프레임 초기화 및 동기화
+    if "team_assign_df" not in st.session_state:
+        st.session_state.team_assign_df = pd.DataFrame({"이름": current_attending, "소속팀": ["미배정"] * len(current_attending)})
+    else:
+        existing_assign = st.session_state.team_assign_df.set_index("이름")["소속팀"].to_dict()
+        new_assign_data = []
+        for name in current_attending:
+            new_assign_data.append({"이름": name, "소속팀": existing_assign.get(name, "미배정")})
+        st.session_state.team_assign_df = pd.DataFrame(new_assign_data)
+
+    st.markdown("---")
+    st.subheader("팀 편성 표 (자동 매칭 후 직접 수정 가능)")
+    st.write("자동 매칭 버튼을 누르거나, 표의 소속팀 칸을 눌러 직접 배정하세요.")
+
+    team_options = ["미배정", "블루", "레드"] if "2파전" in selected_mode else ["미배정", "블랙", "레드", "블루"]
+
+    if st.button("AI 자동 밸런스 매칭 가동", use_container_width=True):
+        players = []
+        for name in current_attending:
+            if name in st.session_state.MEMBER_DATABASE:
+                db_info = st.session_state.MEMBER_DATABASE[name]
+                total_score = float(db_info.get("공격", 0)) + float(db_info.get("수비", 0))
+            else:
+                total_score = 6.0
+            players.append({"name": name, "total": total_score})
+            
+        players.sort(key=lambda x: x['total'], reverse=True)
+        
+        assigned_dict = {}
+        if "2파전" in selected_mode:
+            teams = ["레드", "블루"]
+            for idx, p in enumerate(players):
+                assigned_dict[p["name"]] = teams[idx % 2]
+        else:
+            teams = ["블랙", "레드", "블루"]
+            order = [0, 1, 2]
+            for idx, p in enumerate(players):
+                if idx % 3 == 0 and idx > 0: random.shuffle(order)
+                assigned_dict[p["name"]] = teams[order[idx % 3]]
+                
+        for i in range(len(st.session_state.team_assign_df)):
+            nm = st.session_state.team_assign_df.at[i, "이름"]
+            if nm in assigned_dict:
+                st.session_state.team_assign_df.at[i, "소속팀"] = assigned_dict[nm]
+        st.rerun()
+
+    edited_assign_df = st.data_editor(
+        st.session_state.team_assign_df,
+        column_config={
+            "이름": st.column_config.TextColumn("이름", disabled=True),
+            "소속팀": st.column_config.SelectboxColumn("소속팀", options=team_options, required=True)
+        },
+        use_container_width=True,
+        hide_index=True
+    )
+    st.session_state.team_assign_df = edited_assign_df
+
+    st.markdown("---")
+    if st.button("이 편성표대로 팀 확정하기 (점수판 초기화)", use_container_width=True, type="primary"):
         st.session_state.show_warning = True
 
     if st.session_state.show_warning:
-        st.warning("주의: 팀을 새로 짜면 현재 경기 기록실의 점수가 모두 초기화됩니다. 계속 진행하시겠습니까?")
+        st.warning("주의: 팀을 새로 확정하면 현재 경기 기록실의 점수가 모두 초기화됩니다. 진행하시겠습니까?")
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("네, 새로 짭니다", use_container_width=True, type="secondary"):
+            if st.button("네, 확정합니다", use_container_width=True, type="secondary"):
                 st.session_state.show_warning = False
                 
-                players = []
-                for name in st.session_state.attendance_list:
-                    cleaned_name = str(name).strip()
-                    if cleaned_name and cleaned_name != "None" and cleaned_name != "":
-                        if cleaned_name in st.session_state.MEMBER_DATABASE:
-                            db_info = st.session_state.MEMBER_DATABASE[cleaned_name]
-                            total_score = float(db_info["공격"]) + float(db_info["수비"])
-                        else:
-                            total_score = 6.0
-                        players.append({"name": cleaned_name, "total": total_score})
+                new_mode = "2파전" if "2파전" in selected_mode else "3파전"
+                st.session_state.match_mode = new_mode
+                
+                st.session_state.current_teams = {t: [] for t in team_options if t != "미배정"}
+                for _, row in edited_assign_df.iterrows():
+                    t = row["소속팀"]
+                    n = row["이름"]
+                    if t != "미배정" and n:
+                        st.session_state.current_teams[t].append({"name": n})
                         
-                total_players = len(players)
-                if total_players < 2:
-                    st.error("선수를 입력해 주세요.")
-                else:
-                    players.sort(key=lambda x: x['total'], reverse=True)
-                    
-                    new_mode = "2파전" if "2파전" in selected_mode else "3파전"
-                    st.session_state.match_mode = new_mode
-                    st.session_state.current_teams = {name: [] for name in (["레드", "블루"] if new_mode == "2파전" else ["블랙", "레드", "블루"])}
-                    
-                    if new_mode == "2파전":
-                        for idx, p in enumerate(players):
-                            st.session_state.current_teams["레드" if idx % 2 == 0 else "블루"].append(p)
-                    else:
-                        order = [0, 1, 2]
-                        for idx, p in enumerate(players):
-                            if idx % 3 == 0 and idx > 0: random.shuffle(order)
-                            st.session_state.current_teams[(["블랙", "레드", "블루"])[order[idx % 3]]].append(p)
-                    
-                    st.session_state.edited_score_df = get_blank_score_df(new_mode)
-                    save_permanent_data()
-                    st.rerun()
-                    
+                st.session_state.edited_score_df = get_blank_score_df(new_mode)
+                save_permanent_data()
+                st.rerun()
+                
         with col2:
-            if st.button("아니오, 취소합니다", use_container_width=True):
+            if st.button("아니오, 취소", use_container_width=True):
                 st.session_state.show_warning = False
-                st.info("팀 짜기가 취소되었습니다. 기존 경기 기록은 무사합니다.")
+                st.info("팀 확정이 취소되었습니다. 기존 경기 기록은 무사합니다.")
                 st.rerun()
 
     if st.session_state.current_teams and not st.session_state.show_warning:
-        st.success("매칭 완료")
+        st.success("팀 확정 및 매칭 완료")
         
         katalk_text = f"[풋살 팀 매칭 결과 ({st.session_state.match_mode})]\n"
         for t_name, members in st.session_state.current_teams.items():
+            if not members:
+                continue
             m_names = [p['name'] for p in members]
             random.shuffle(m_names) 
             katalk_text += f"\n{t_name}팀 ({len(members)}명)\n{', '.join(m_names)}\n"
             
-        st.text_area("꾹 눌러서 복사 후 카톡 공지", value=katalk_text, height=140)
+        st.text_area("복사 후 카톡 공지용 텍스트", value=katalk_text, height=140)
 
 # =========================================================================
 # 2페이지
@@ -333,7 +376,7 @@ elif page == menu_2:
             
             for rank_idx, t_name in enumerate(ranked_teams):
                 rank_num = rank_idx + 1
-                team_players = [p["name"] for p in st.session_state.current_teams[t_name]]
+                team_players = [p["name"] for p in st.session_state.current_teams.get(t_name, [])]
                 log_entry["ranks"][f"{rank_num}위"] = f"{t_name}팀 ({', '.join(team_players)})"
                 
                 if st.session_state.match_mode == "2파전":
@@ -359,7 +402,7 @@ elif page == menu_2:
             st.rerun()
 
 # =========================================================================
-# 3페이지 (관리자 삭제 기능 추가)
+# 3페이지
 # =========================================================================
 elif page == menu_3:
     st.title("3. 날짜별 기록실")
@@ -368,7 +411,6 @@ elif page == menu_3:
     if not st.session_state.history_logs:
         st.info("아직 마감된 정산 장부 기록이 없습니다.")
     else:
-        # 인덱스 추적을 위해 enumerate 사용 (역순 출력이므로 원래 인덱스 계산 필요)
         for idx, item in enumerate(reversed(st.session_state.history_logs)):
             real_idx = len(st.session_state.history_logs) - 1 - idx
             
@@ -394,7 +436,6 @@ elif page == menu_3:
                 if fine_table:
                     st.table(pd.DataFrame(fine_table))
 
-                # 관리자에게만 노출되는 삭제 버튼 추가
                 if is_admin:
                     if st.button("이 기록 삭제하기 (관리자 전용)", key=f"del_log_{real_idx}"):
                         st.session_state.history_logs.pop(real_idx)
